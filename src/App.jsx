@@ -1,10 +1,11 @@
 import './App.css'
+import Login from './components/Login/Login'
 
 function App() {
 
   return (
     <div>
-      <h1>Rotodyne Attendance Management System</h1>
+     <Login/>
     </div>
   )
 }
