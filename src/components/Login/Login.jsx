@@ -17,11 +17,11 @@ function Login({
     ],
   },
   defaultCompany = "RES",
-  defaultRole = "RES",
+  defaultRole = "SITE ENGINEER",
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [stno, setStno] = useState("");
+  const [empId, setEmpId] = useState("");
 
   const [company, setCompany] = useState(defaultCompany);
   const [site, setSite] = useState("ALL");
@@ -29,6 +29,8 @@ function Login({
 
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const [errors, setErrors] = useState({});
 
   const currentSites = useMemo(() => {
     return sitesByCompany?.[company] ?? [];
@@ -39,15 +41,37 @@ function Login({
     setSite("ALL");
   }, [company]);
 
+  function validate() {
+    const err = {};
+
+    if (!email.trim()) err.email = "Email is required";
+    else if (!/^\S+@\S+\.\S+$/.test(email)) err.email = "Enter a valid email.";
+
+    if (!password.trim()) err.password = "Password is required";
+
+    if (!empId.trim()) err.empId = "Employee ID is required";
+
+    if (!role.trim()) err.role = "Role is Required";
+
+    return err;
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
+
+    const err = validate();
+
+    if (Object.keys(err).length > 0) {
+      setErrors(err);
+      return;
+    }
 
     setBusy(true);
 
     const data = {
       email,
       password,
-      stno,
+      empId,
       company,
       site,
       role,
@@ -91,10 +115,14 @@ function Login({
               <label className="block text-sm text-slate-700">Email</label>
               <input
                 type="text"
-                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
+                className={`mt-1 block w-full rounded-md border px-3 py-2
+                  ${errors.email ? "border-red-500" : "border-slate-300"}`}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
+              {errors.email && (
+                <p className="text-xs text-red-600 mt-1">{errors.email}</p>
+              )}
             </div>
 
             {/* Password */}
@@ -103,7 +131,7 @@ function Login({
               <div className="relative mt-1">
                 <input
                   type={showPassword ? "text" : "password"}
-                  className="block w-full rounded-md border border-slate-300 px-3 py-2 pr-14"
+                  className={`block w-full rounded-md border px-3 py-2 pr-14 ${errors.password ? "border-red-500" : "border-slate-300"}`}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -115,34 +143,42 @@ function Login({
                   {showPassword ? "Hide" : "Show"}
                 </button>
               </div>
+              {errors.password && (
+                <p className="text-xs text-red-600 mt-1">{errors.password}</p>
+              )}
             </div>
 
-            {/* Company Dropdown */}
+            {/*Employee ID */}
             <div>
-              <label className="block text-sm text-slate-700">Company</label>
-              <select
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
-              >
-                {companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <label className="block text-sm text-slate-700">
+                Employee ID
+              </label>
+              <input
+                type="text"
+                value={empId}
+                onChange={(e) => setEmpId(e.target.value)}
+                className={`mt-1 block w-full rounded-md border px-3 py-2 ${errors.empId ? "border-red-500" : "border-slate-300"}`}
+              />
+              {errors.empId && (
+                <p className="text-xs text-red-600 mt-1">{errors.empId}</p>
+              )}
             </div>
 
-            {/* STNO + Site */}
+            {/* Company Dropdown + Site */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-slate-700">STNO</label>
-                <input
-                  type="text"
-                  value={stno}
-                  onChange={(e) => setStno(e.target.value)}
+                <label className="block text-sm text-slate-700">Company</label>
+                <select
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
                   className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
-                />
+                >
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -168,12 +204,15 @@ function Login({
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
+                className={`mt-1 block w-full rounded-md border px-3 py-2 ${errors.role ? "border-red-500" : "border-slate-300"}`}
               >
-                <option value="RES">RES</option>
+                <option value="RES">SITE ENGINEER</option>
                 <option value="ADMIN">ADMIN</option>
                 <option value="VIEWER">VIEWER</option>
               </select>
+              {errors.role && (
+                <p className="text-xs text-red-600 mt-1">{errors.role}</p>
+              )}
             </div>
 
             {/* Submit */}
