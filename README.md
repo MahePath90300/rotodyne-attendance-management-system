@@ -1,3 +1,15 @@
+# Rotodyne Attendance Management system - POC
+
+Local:
+1. `npm install`
+2. `npm run dev` (Vite dev server)
+3. `npm run build` (build production)
+
+Branching:
+- `develop` for staging work
+- `main` for production
+
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
