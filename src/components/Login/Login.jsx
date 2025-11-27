@@ -97,16 +97,16 @@ function Login({
           <h2 className="text-2xl font-semibold text-sky-800">
             Rotodyne Industries
           </h2>
-          <p className="mt-2 text-sm text-slate-600">For Internal Use</p>
-          <p className="mt-6 text-xs text-slate-500 text-center">
+          <p className="mt-4 font-medium text-slate-500 text-center">
             Attendance Management System
           </p>
+          <p className="mt-2 text-sm text-slate-600">(For Internal Use Only)</p>
         </aside>
 
         {/* Right Panel */}
         <main className="p-6 md:p-10">
           <h3 className="text-xl font-medium text-slate-800 mb-4">
-            Sign in to continue
+            Login to continue
           </h3>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -115,6 +115,7 @@ function Login({
               <label className="block text-sm text-slate-700">Email</label>
               <input
                 type="text"
+                placeholder="Enter your email"
                 className={`mt-1 block w-full rounded-md border px-3 py-2
                   ${errors.email ? "border-red-500" : "border-slate-300"}`}
                 value={email}
@@ -131,6 +132,7 @@ function Login({
               <div className="relative mt-1">
                 <input
                   type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
                   className={`block w-full rounded-md border px-3 py-2 pr-14 ${errors.password ? "border-red-500" : "border-slate-300"}`}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -155,6 +157,7 @@ function Login({
               </label>
               <input
                 type="text"
+                placeholder="Enter your employee id"
                 value={empId}
                 onChange={(e) => setEmpId(e.target.value)}
                 className={`mt-1 block w-full rounded-md border px-3 py-2 ${errors.empId ? "border-red-500" : "border-slate-300"}`}
