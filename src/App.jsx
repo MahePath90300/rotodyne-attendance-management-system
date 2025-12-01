@@ -1,12 +1,18 @@
+import { Routes, Route } from 'react-router-dom'
 import './App.css'
-import Login from './components/Login/Login'
+import Unauthorized from './pages/Unauthorized';
+import Dashboard from "./pages/Dashboard";
+import ProtectedRoute from "./components/ProtectedRoute";
+import Loginpage from './pages/Loginpage';
 
 function App() {
 
   return (
-    <div>
-     <Login/>
-    </div>
+    <Routes>
+      <Route path='/' element={<Loginpage />}/>
+      <Route path='/unauthorized' element={<Unauthorized/>}/>
+      <Route path='/dashboard' element={ <ProtectedRoute><Dashboard /> </ProtectedRoute>}/>
+    </Routes>
   )
 }
 
