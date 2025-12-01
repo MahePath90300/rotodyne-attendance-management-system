@@ -4,22 +4,15 @@ import { useNavigate } from "react-router-dom";
 
 function Login({
   onSubmit, // required: async function(formData) -> login logic done by parent
-  companies = [
-    { id: "RES", name: "RES" },
-    { id: "REF", name: "REF" },
-  ],
+  companies = [{ id: "RES", name: "RES" }],
   sitesByCompany = {
     RES: [
-      { id: "RES-01", name: "RES - Site 01" },
-      { id: "RES-02", name: "RES - Site 02" },
-    ],
-    REF: [
-      { id: "REF-101", name: "REF - Site 101" },
-      { id: "REF-102", name: "REF - Site 102" },
+      { id: "GADARWARA", name: "GADARWARA" },
+      { id: "DADRI", name: "DADRI" },
     ],
   },
   defaultCompany = "RES",
-  defaultRole = "SITE ENGINEER",
+  defaultRole = "ADMIN",
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -146,10 +139,46 @@ function Login({
                 />
                 <button
                   type="button"
-                  className="absolute inset-y-0 right-0 pr-2 text-sm text-slate-600"
+                  className="absolute inset-y-0 right-0 pl-2 pr-2 text-sm text-slate-600"
                   onClick={() => setShowPassword((s) => !s)}
                 >
-                  {showPassword ? "Hide" : "Show"}
+                  {showPassword /* Eye-off icon */ ? (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-5 w-5 text-slate-600"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                      />
+                    </svg>
+                  ) : (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-5 w-5 text-slate-600"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      {" "}
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 3l18 18M10.584 10.585A3 3 0 0113.416 13.415M6.454 6.455A9.96 9.96 0 003 12c1.5 4 5.5 7 9 7 1.33 0 2.6-.26 3.76-.74m2.83-2.83A9.975 9.975 0 0021 12c-1.5-4-5.5-7-9-7-1.34 0-2.61.27-3.77.76"
+                      />{" "}
+                    </svg>
+                  )}
                 </button>
               </div>
               {errors.password && (
