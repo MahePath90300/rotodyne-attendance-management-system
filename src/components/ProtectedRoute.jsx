@@ -1,4 +1,4 @@
-import { useAuth } from "../context/AuthenticationContext";
+import { useAuth } from "../context/AuthenticationContext.jsx";
 import { Navigate } from "react-router-dom";
 import Spinner from "./spinner";
 

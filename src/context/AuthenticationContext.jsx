@@ -1,38 +1,37 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import api from "../api/axios"; // your axios instance (withCredentials: true)
+import api from "../api/axios";
+import * as notify from "../utils/notify";
+
 
 const AuthContext = createContext(null);
-
-/**
- * AuthProvider - provides user state, login and logout helpers
- *
- * Exports both named and default so imports like:
- *   import { AuthProvider } from './context/AuthContext'
- * or
- *   import AuthProvider from './context/AuthContext'
- * both work.
- */
-
-// login: posts credentials, server sets httpOnly cookie, server returns user payload
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true); // true until /me finishes
   
   async function login(credentials) {
+    try{
     const res = await api.post("/api/v1/auth/login", credentials);
     const loggedUser = res?.data?.user ?? null;
     setUser(loggedUser);
+    notify.success("Successfully Logged in");
     return loggedUser;
+    }catch(err){
+      const message = err?.response?.data?.message || err?.message || "Login failed";
+       notify.error(message);
+       throw err;
+    }
   }
 
   // logout: call server to clear cookie and clear local state
  async function logout() {
     try {
       await api.post("/api/v1/auth/logout");
+      notify.success("Logged out successfuly")
     } catch (e) {
       // ignore network errors on logout
+      notify.warn("Unable to contact server; local session cleared");
     } finally {
       setUser(null);
     }
@@ -44,7 +43,7 @@ export function AuthProvider({ children }) {
 
     (async () => {
       try {
-        const res = await api.get("/api/v1/auth/me"); // leading slash is important
+        const res = await api.get("/api/v1/auth/me"); 
         if (mounted && res?.data?.user) {
           setUser(res.data.user);
         }

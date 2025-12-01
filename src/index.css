@@ -108,6 +108,22 @@ body {
   --font-bold: 700;
 }
 
+.Toastify__toast--success {
+  background: linear-gradient(90deg,#ecfdf5,#d1fae5) !important;
+  color: #064e3b !important; /* dark green */
+  border-left: 4px solid #10b981;
+}
+.Toastify__toast--error {
+  background: linear-gradient(90deg,#fff1f2,#fee2e2) !important;
+  color: #7f1d1d !important;
+  border-left: 4px solid #ef4444;
+}
+.Toastify__toast {
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(16,24,40,0.08);
+  font-size: 14px;
+}
+
 @layer base {
   * {
     @apply border-gray-200;
