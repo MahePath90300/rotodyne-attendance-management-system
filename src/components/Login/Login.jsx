@@ -258,7 +258,7 @@ function Login({
             <button
               type="submit"
               disabled={busy}
-              className={`w-full rounded-md px-4 py-2 text-white font-medium ${
+              className={`w-full cursor-pointer rounded-md px-4 py-2 text-white font-medium ${
                 busy ? "bg-sky-300" : "bg-sky-700 hover:bg-sky-600"
               }`}
             >
