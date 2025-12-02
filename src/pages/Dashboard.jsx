@@ -1,101 +1,203 @@
-import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "../context/AuthenticationContext";
-import LogoutButton from "../components/LogoutButton";
+import React, { useEffect, useState } from "react";
+import SiteSelector from "../components/SiteSelector";
+import AttendanceTable from "../components/AttendanceTable";
+import { buildMonthWindow } from "../utils/dates";
+import { useAuth } from "../context/AuthenticationContext.jsx";
+import api from "../api/axios";
 
-function Dashboard() {
-  const { user, loading } = useAuth();
-  const navigate = useNavigate();
+import mockData from "../mock/attendance.mock";
 
-  if (loading) return <div className="p-6">Loading...</div>;
+export default function Dashboard() {
+  const [company, setCompany] = useState("RES");
+  const [sites, setSites] = useState({
+    list: [
+      { id: "ALL", name: "All Sites" },
+      { id: "GARADWARA", name: "Garadwara" },
+      { id: "DADRI", name: "Dadri" },
+    ],
+    selected: "ALL",
+  });
+  const [selectedSite, setSelectedSite] = useState("ALL");
+  const [siteData, setSiteData] = useState(null);
+  const { user } = useAuth();
 
-  // Example quick role examples
-  const isAdmin = user && String(user.role).toUpperCase() === "ADMIN";
-  const isSiteEngineer =
-    user && String(user.role).toUpperCase() === "SITE_ENGINEER";
+  // month window: choose month/year (defaults to current month)
+  const now = new Date();
+  const defaultYear = now.getFullYear();
+  const defaultMonth = now.getMonth() + 1; // 1..12
+  const [year, setYear] = useState(defaultYear);
+  const [month, setMonth] = useState(defaultMonth);
 
-  return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-5xl mx-auto">
-        <header className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-800">Dashboard</h1>
-            <p className="text-sm text-slate-500">
-              Welcome back, {user?.email}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              Role: <strong>{user?.role}</strong> • Site: {user?.site}
-            </p>
-          </div>
+  useEffect(() => {
+    let mounted = true;
 
-          <div className="flex items-center gap-4">
-            <LogoutButton />
-          </div>
-        </header>
+    async function loadFromApi(siteId) {
+      try {
+        // If user selected "ALL", we don't call the single-site API — show instruction.
+        if (siteId === "ALL") {
+          if (!mounted) return;
+          setSiteData(null); // UI will show "select a site..."
+          return;
+        }
 
-        <main>
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="p-4 bg-white rounded shadow">
-              <h3 className="text-sm font-medium text-slate-600">
-                Today Summary
-              </h3>
-              <div className="mt-2 text-2xl font-semibold text-slate-800">
-                Present: 45
-              </div>
-              <div className="text-xs text-slate-400 mt-1">
-                Absentees: 3 • OT Hrs: 12
-              </div>
-            </div>
+        // call your backend endpoint
+        const res = await api.get(`/api/v1/attendance/site/${encodeURIComponent(siteId)}?year=${year}&month=${month}`);
+        if (!mounted) return;
+        // expect server to return the same shape as mock:
+        // { siteTitle, siteType, employees, attendanceMap, holidays }
+        setSiteData(res.data);
+      } catch (err) {
+        // API failed (404 or network). Log and fallback to mock if available.
+        console.error("Attendance API failed:", err?.response?.status, err?.response?.data || err.message);
 
-            <div className="p-4 bg-white rounded shadow">
-              <h3 className="text-sm font-medium text-slate-600">
-                Quick Actions
-              </h3>
-              <div className="mt-3 flex flex-col gap-2">
-                {isAdmin && (
-                  <>
-                    <Link to="/employees" className="btn">
-                      Manage Employees
-                    </Link>
-                    <Link to="/holidays" className="btn">
-                      Manage Holidays
-                    </Link>
-                  </>
-                )}
-                {isSiteEngineer && (
-                  <Link to="/attendance" className="btn">
-                    Mark Attendance
-                  </Link>
-                )}
-                <Link to="/reports" className="btn">
-                  Reports
-                </Link>
-              </div>
-            </div>
+        // fallback behavior: if mockData has the site, use that
+        const mock = mockData[siteId];
+        if (mock) {
+          console.warn("Using mockData fallback for site:", siteId);
+          if (mounted) {
+            setSiteData({
+              siteTitle: mock.siteTitle,
+              siteType: mock.siteType,
+              employees: mock.employees,
+              attendanceMap: mock.attendanceMap,
+              holidays: mock.holidays,
+            });
+          }
+          return;
+        }
 
-            <div className="p-4 bg-white rounded shadow">
-              <h3 className="text-sm font-medium text-slate-600">
-                Recent Logins
-              </h3>
-              <ul className="mt-2 text-sm text-slate-700 leading-6">
-                <li>admin@rotodyne.com — 2025-11-27 09:01 (You)</li>
-                <li>engineer@rotodyne.com — 2025-11-27 08:53</li>
-                <li>supervisor@rotodyne.com — 2025-11-26 17:12</li>
-              </ul>
-            </div>
-          </section>
+        // if no mock available, show a friendly error state
+        if (mounted) {
+          setSiteData({ error: true, message: `Unable to load data for ${siteId}.` });
+        }
+      }
+    }
 
-          <section className="bg-white rounded shadow p-4">
-            <h3 className="text-sm font-medium text-slate-600">
-              Announcements
-            </h3>
-            <div className="mt-2 text-sm text-slate-700">
-              <p>No announcements for today.</p>
-            </div>
-          </section>
-        </main>
+    loadFromApi(selectedSite);
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedSite, year, month]);
+
+  function onOpenSite(siteId) {
+    setSelectedSite(siteId);
+  }
+
+  // UI decision logic
+  if (selectedSite === "ALL") {
+    return (
+      <div className="p-6">
+        <SiteSelector
+          company={company}
+          setCompany={setCompany}
+          sites={sites}
+          setSite={(val) => setSites({ ...sites, selected: val })}
+          onOpenSite={onOpenSite}
+        />
+
+        <div className="mb-4 flex items-center gap-3">
+          <label className="text-sm">Month</label>
+          <input
+            type="number"
+            value={month}
+            min={1}
+            max={12}
+            onChange={(e) => setMonth(Number(e.target.value))}
+            className="w-20 border rounded px-2 py-1"
+          />
+          <input
+            type="number"
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="w-28 border rounded px-2 py-1"
+          />
+        </div>
+
+        <div className="bg-white rounded shadow p-4">Select a site (Garadwara or Dadri) to view attendance.</div>
       </div>
+    );
+  }
+
+  // selectedSite != 'ALL'
+  if (!siteData) {
+    // loading state (either waiting for API or fallback)
+    return (
+      <div className="p-6">
+        <SiteSelector
+          company={company}
+          setCompany={setCompany}
+          sites={sites}
+          setSite={(val) => setSites({ ...sites, selected: val })}
+          onOpenSite={onOpenSite}
+        />
+        <div className="mt-6">Loading attendance for <b>{selectedSite}</b> ...</div>
+      </div>
+    );
+  }
+
+  if (siteData.error) {
+    return (
+      <div className="p-6">
+        <SiteSelector
+          company={company}
+          setCompany={setCompany}
+          sites={sites}
+          setSite={(val) => setSites({ ...sites, selected: val })}
+          onOpenSite={onOpenSite}
+        />
+        <div className="mt-6 text-red-600">Error: {siteData.message}</div>
+      </div>
+    );
+  }
+
+  // Render table
+  return (
+    <div className="p-6">
+      <SiteSelector
+        company={company}
+        setCompany={setCompany}
+        sites={sites}
+        setSite={(val) => setSites({ ...sites, selected: val })}
+        onOpenSite={onOpenSite}
+      />
+      <div className="mb-4 flex items-center gap-3">
+        <label className="text-sm">Month</label>
+        <input
+          type="number"
+          value={month}
+          min={1}
+          max={12}
+          onChange={(e) => setMonth(Number(e.target.value))}
+          className="w-20 border rounded px-2 py-1"
+        />
+        <input
+          type="number"
+          value={year}
+          onChange={(e) => setYear(Number(e.target.value))}
+          className="w-28 border rounded px-2 py-1"
+        />
+      </div>
+
+      <h2 className="text-lg font-semibold mb-2">
+        {siteData.siteTitle || selectedSite} — {month}/{year}
+      </h2>
+
+      <AttendanceTable
+        siteId={selectedSite}
+        siteTitle={siteData.siteTitle || selectedSite}
+        siteType={siteData.siteType || "Supply"}
+        employees={siteData.employees || []}
+        attendanceMap={siteData.attendanceMap || {}}
+        holidays={new Set(siteData.holidays || [])}
+        year={year}
+        month={month}
+        onSaved={() => {
+          
+          setSiteData(null);
+        }}
+        allowViewerEdit={false}
+      />
     </div>
   );
 }
-
-export default Dashboard;
