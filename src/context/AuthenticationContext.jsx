@@ -12,7 +12,16 @@ export function AuthProvider({ children }) {
   
   async function login(credentials) {
     try{
-    const res = await api.post("/api/v1/auth/login", credentials);
+       const payload = {
+      email: credentials.email,
+      password: credentials.password,
+      employeeId: credentials.employeeId,
+      company: credentials.company,
+      site: credentials.site,
+      role: credentials.role,
+    };
+
+    const res = await api.post("/api/v1/auth/login", payload);
     const loggedUser = res?.data?.user ?? null;
     setUser(loggedUser);
     notify.success("Successfully Logged in");

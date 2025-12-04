@@ -8,17 +8,32 @@ export default function Loginpage() {
   // AuthContext.login should call backend and set user
   const navigate = useNavigate();
   const [error, setError] = useState("");
-  const { login } = useAuth();
+  const { login, user } = useAuth();
 
   async function handleLogin(formData) {
     // This function will be passed to Login as onSubmit
     try {
-      await login(formData); // context login posts to /auth/login and sets global user
-      // navigate only after login finishes
-      navigate("/dashboard", { replace: true });
+      const loggedInUser = await login(formData); // context login posts to /auth/login and sets global user
+      const role = (loggedInUser?.role || "").toUpperCase();
+      let siteId;
+      const siteFromUser = loggedInUser?.site;
+      const siteFromForm = formData.site;
+      const targetSite = siteFromUser || siteFromForm || "DADRI"; // sensible default
+      if (role === "SITE_ENGINEER") {
+        // locked to DB site
+        siteId = user.site;
+      } else {
+        // Admin / Viewer – prefer dropdown site, fallback to DB
+        siteId = formData.site || user.site || "GARADWARA";
+      }
+
+      if (!siteId) throw new Error("No site assigned to this user.");
+
+      navigate(`/dashboard/${targetSite}`, { replace: true });
     } catch (err) {
-      setError(err?.message || "Login failed");
-      notify.error(err?.message);
+      const msg = err?.message || "Login failed";
+      setError(msg);
+      notify.error(msg);
       // rethrow so Login component catches and shows error
     }
   }

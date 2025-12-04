@@ -108,6 +108,18 @@ body {
   --font-bold: 700;
 }
 
+/* Hide arrows on OT/HW hour inputs */
+input[type="number"].ot-hours::-webkit-outer-spin-button,
+input[type="number"].ot-hours::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"].ot-hours {
+  -moz-appearance: textfield;
+}
+
+
 .Toastify__toast--success {
   background: linear-gradient(90deg,#ecfdf5,#d1fae5) !important;
   color: #064e3b !important; /* dark green */

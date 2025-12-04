@@ -1,60 +1,143 @@
-import { subDays, format } from "date-fns";
+// src/mock/attendance.mock.js
 
-function iso(d) { return format(d, "yyyy-MM-dd"); }
+/**
+ * --- MOCK FILE FOR UI TESTING ---
+ * Contains:
+ * - Days list (26th previous → 25th next)
+ * - Holidays
+ * - Employees (Supply + BOQ)
+ * - Attendance map for each employee
+ */
 
-const days = (() => {
-  const start = new Date(2025, 10, 26); // Nov 26 2025
-  const arr = [];
-  for (let i=0;i<30;i++) arr.push(iso(new Date(start.getFullYear(), start.getMonth(), start.getDate()+i)));
-  return arr;
-})();
+function generateMonthDays(year, month) {
+  const start = new Date(year, month - 1, 26);  // start: prev month 26
+  const end = new Date(year, month, 25);        // end: next month 25
 
-const employees_gar = [
-  { empNo: "G1001", name: "ADESH KUMAR", designation: "Worker", category: "Supply", site: "GARADWARA", siteType: "Supply" },
-  { empNo: "G1002", name: "BACHAN SINGH", designation: "Worker", category: "BOQ", site: "GARADWARA", siteType: "BOQ" },
-  { empNo: "G1003", name: "BALVINDER", designation: "Worker", category: "Supply", site: "GARADWARA", siteType: "Supply" },
-];
+  const days = [];
+  const cur = new Date(start);
 
-const att_gar = {};
-employees_gar.forEach((e, idx) => {
-  att_gar[e.empNo] = {};
-  days.forEach((d,i) => {
-    // set some absences and OT
-    if (i % 10 === 1) att_gar[e.empNo][d] = "A";
-    else if (i % 7 === 0) att_gar[e.empNo][d] = "PP";
-    else att_gar[e.empNo][d] = "P";
-  });
-});
+  while (cur <= end) {
+    const iso = cur.toISOString().slice(0, 10);
 
-const holidays_gar = [ days[2], days[15] ];
+    days.push({
+      date: iso,
+      day: cur.toLocaleString("en-US", { weekday: "short" }),
+      isSunday: cur.getDay() === 0,
+    });
 
-const employees_dad = [
-  { empNo: "D2001", name: "RAJENDER", designation: "Worker", category: "BOQ", site: "DADRI", siteType: "BOQ" },
-  { empNo: "D2002", name: "SANTOSH", designation: "Worker", category: "Supply", site: "DADRI", siteType: "Supply" },
-];
-const att_dad = {};
-employees_dad.forEach((e, idx) => {
-  att_dad[e.empNo] = {};
-  days.forEach((d,i) => {
-    if (i % 9 === 2) att_dad[e.empNo][d] = "A";
-    else att_dad[e.empNo][d] = "P";
-  });
-});
-const holidays_dad = [ days[4] ];
-
-export default {
-  GARADWARA: {
-    employees: employees_gar,
-    attendanceMap: att_gar,
-    holidays: holidays_gar,
-    siteTitle: "NTPC GARADWARA",
-    siteType: "Supply"
-  },
-  DADRI: {
-    employees: employees_dad,
-    attendanceMap: att_dad,
-    holidays: holidays_dad,
-    siteTitle: "NTPC DADRI",
-    siteType: "BOQ"
+    cur.setDate(cur.getDate() + 1);
   }
+
+  return days;
+}
+
+// -----------------------------------------
+//  MOCK EMPLOYEES (with Designation & Category)
+// -----------------------------------------
+const employeesSupply = [
+  {
+    empNo: "14171",
+    name: "ABHISHEK AHIROWA",
+    designation: "JR.F",
+    category: "SSW",
+    type: "SUPPLY",
+  },
+  {
+    empNo: "14969",
+    name: "SACHIN BHATI",
+    designation: "WELDER",
+    category: "HSW",
+    type: "SUPPLY",
+  },
+  {
+    empNo: "14977",
+    name: "RAKESH KUMAR",
+    designation: "HELPER",
+    category: "USW",
+    type: "SUPPLY",
+  },
+];
+
+const employeesBOQ = [
+  {
+    empNo: "15610",
+    name: "MOHIT SINGH",
+    designation: "PAINTER",
+    category: "USW",
+    type: "BOQ",
+  },
+  {
+    empNo: "15441",
+    name: "RAJENDER SINGH",
+    designation: "MVF",
+    category: "HSW",
+    type: "BOQ",
+  },
+];
+
+// Combine
+const allEmployees = [...employeesSupply, ...employeesBOQ];
+
+// -----------------------------------------
+//  GENERATE SAMPLE ATTENDANCE FOR EACH EMPLOYEE
+// -----------------------------------------
+function generateAttendanceMap(days, employees) {
+  const map = {};
+
+  employees.forEach((emp) => {
+    const empAttendance = {};
+
+    days.forEach((d) => {
+      if (d.isSunday) {
+        empAttendance[d.date] = "H"; // Holiday/Sunday
+      } else {
+        const random = Math.random();
+        empAttendance[d.date] =
+          random < 0.8 ? "PP" : random < 0.9 ? "A" : "OT";
+      }
+    });
+
+    map[emp.empNo] = empAttendance;
+  });
+
+  return map;
+}
+
+// -----------------------------------------
+//  HOLIDAYS
+// -----------------------------------------
+const holidays = ["2025-11-09", "2025-11-23"];
+
+// -----------------------------------------
+//  DAYS WINDOW FOR SAMPLE (Nov 2025)
+// -----------------------------------------
+const days = generateMonthDays(2025, 11);
+
+// -----------------------------------------
+//  FINAL MOCK OBJECT FOR 2 SITES
+// -----------------------------------------
+const mockData = {
+  DADRI: {
+    siteTitle: "NTPC DADRI",
+    siteType: "Supply",
+
+    days,
+    holidays,
+    employees: allEmployees,
+
+    attendanceMap: generateAttendanceMap(days, allEmployees),
+  },
+
+  GARADWARA: {
+    siteTitle: "NTPC GARADWARA",
+    siteType: "BOQ",
+
+    days,
+    holidays,
+    employees: allEmployees,
+
+    attendanceMap: generateAttendanceMap(days, allEmployees),
+  },
 };
+
+export default mockData;
