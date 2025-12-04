@@ -1,202 +1,137 @@
+// src/pages/Dashboard.jsx
 import React, { useEffect, useState } from "react";
-import SiteSelector from "../components/SiteSelector";
+import { useParams } from "react-router-dom";
+
 import AttendanceTable from "../components/AttendanceTable";
-import { buildMonthWindow } from "../utils/dates";
 import { useAuth } from "../context/AuthenticationContext.jsx";
 import api from "../api/axios";
-
+import { buildMonthWindow } from "../utils/dates";
 import mockData from "../mock/attendance.mock";
 
 export default function Dashboard() {
-  const [company, setCompany] = useState("RES");
-  const [sites, setSites] = useState({
-    list: [
-      { id: "ALL", name: "All Sites" },
-      { id: "GARADWARA", name: "Garadwara" },
-      { id: "DADRI", name: "Dadri" },
-    ],
-    selected: "ALL",
-  });
-  const [selectedSite, setSelectedSite] = useState("ALL");
-  const [siteData, setSiteData] = useState(null);
   const { user } = useAuth();
+  const { siteId: routeSiteId } = useParams();
 
-  // month window: choose month/year (defaults to current month)
+  const normalizedSiteId = routeSiteId === "ALL" ? "GARADWARA" : routeSiteId;
+  const role = (user?.role || "VIEWER").toUpperCase();
+  // Site engineer is locked to their assigned site from DB
+  const effectiveSiteId =
+    role === "SITE_ENGINEER" ? user.site : normalizedSiteId;
+
   const now = new Date();
-  const defaultYear = now.getFullYear();
-  const defaultMonth = now.getMonth() + 1; // 1..12
-  const [year, setYear] = useState(defaultYear);
-  const [month, setMonth] = useState(defaultMonth);
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+
+  const [siteData, setSiteData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
 
-    async function loadFromApi(siteId) {
+    async function load() {
+      setLoading(true);
+      setError("");
       try {
-        // If user selected "ALL", we don't call the single-site API — show instruction.
-        if (siteId === "ALL") {
-          if (!mounted) return;
-          setSiteData(null); // UI will show "select a site..."
-          return;
-        }
+        // --- API call ---
+        const res = await api.get(
+          `/api/v1/attendance/site/${encodeURIComponent(
+            effectiveSiteId
+          )}?year=${year}&month=${month}`
+        );
 
-        // call your backend endpoint
-        const res = await api.get(`/api/v1/attendance/site/${encodeURIComponent(siteId)}?year=${year}&month=${month}`);
-        if (!mounted) return;
-        // expect server to return the same shape as mock:
-        // { siteTitle, siteType, employees, attendanceMap, holidays }
-        setSiteData(res.data);
+        if (cancelled) return;
+
+        const body = res.data || {};
+        const days = body.days || buildMonthWindow(year, month); // if buildMonthWindow returns array
+        setSiteData({
+          siteTitle: body.siteTitle || effectiveSiteId,
+          siteType: body.siteType || "Supply",
+          employees: body.employees || [],
+          attendanceMap: body.attendanceMap || {},
+          otMap: body.otMap || {},
+          holidays: new Set(body.holidays || []),
+          days,
+        });
       } catch (err) {
-        // API failed (404 or network). Log and fallback to mock if available.
-        console.error("Attendance API failed:", err?.response?.status, err?.response?.data || err.message);
+        console.error("Attendance API failed:", err?.message || err);
+        if (cancelled) return;
 
-        // fallback behavior: if mockData has the site, use that
-        const mock = mockData[siteId];
+        // --- fallback to mock ---
+        const mock = mockData[effectiveSiteId];
         if (mock) {
-          console.warn("Using mockData fallback for site:", siteId);
-          if (mounted) {
-            setSiteData({
-              siteTitle: mock.siteTitle,
-              siteType: mock.siteType,
-              employees: mock.employees,
-              attendanceMap: mock.attendanceMap,
-              holidays: mock.holidays,
-            });
-          }
-          return;
+          const days = mock.days || buildMonthWindow(year, month);
+          setSiteData({
+            siteTitle: mock.siteTitle || effectiveSiteId,
+            siteType: mock.siteType || "Supply",
+            employees: mock.employees || [],
+            attendanceMap: mock.attendanceMap || {},
+            otMap: mock.otMap || {},
+            holidays: new Set(mock.holidays || []),
+            days,
+          });
+        } else {
+          setError(`Unable to load data for ${effectiveSiteId}.`);
+          setSiteData(null);
         }
-
-        // if no mock available, show a friendly error state
-        if (mounted) {
-          setSiteData({ error: true, message: `Unable to load data for ${siteId}.` });
-        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
-    loadFromApi(selectedSite);
-
+    load();
     return () => {
-      mounted = false;
+      cancelled = true;
     };
-  }, [selectedSite, year, month]);
+  }, [effectiveSiteId, year, month]);
 
-  function onOpenSite(siteId) {
-    setSelectedSite(siteId);
-  }
+  // ---------- render ----------
 
-  // UI decision logic
-  if (selectedSite === "ALL") {
-    return (
-      <div className="p-6">
-        <SiteSelector
-          company={company}
-          setCompany={setCompany}
-          sites={sites}
-          setSite={(val) => setSites({ ...sites, selected: val })}
-          onOpenSite={onOpenSite}
-        />
+  if (loading) return <div className="p-6">Loading...</div>;
+  if (error) return <div className="p-6 text-red-600">{error}</div>;
+  if (!siteData)
+    return <div className="p-6">No attendance data for this site.</div>;
 
-        <div className="mb-4 flex items-center gap-3">
+  return (
+    <div className="p-4 space-y-4">
+      {/* Site + period controls (hidden for site engineer) */}
+      {role !== "SITE_ENGINEER" && (
+        <div className="flex items-center gap-3">
+          <div className="text-sm font-semibold">
+            Site:{" "}
+            <span className="font-normal">
+              {siteData.siteTitle || effectiveSiteId}
+            </span>
+          </div>
           <label className="text-sm">Month</label>
           <input
             type="number"
-            value={month}
             min={1}
             max={12}
+            value={month}
             onChange={(e) => setMonth(Number(e.target.value))}
-            className="w-20 border rounded px-2 py-1"
+            className="w-20 border rounded px-2 py-1 text-sm"
           />
           <input
             type="number"
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
-            className="w-28 border rounded px-2 py-1"
+            className="w-24 border rounded px-2 py-1 text-sm"
           />
         </div>
-
-        <div className="bg-white rounded shadow p-4">Select a site (Garadwara or Dadri) to view attendance.</div>
-      </div>
-    );
-  }
-
-  // selectedSite != 'ALL'
-  if (!siteData) {
-    // loading state (either waiting for API or fallback)
-    return (
-      <div className="p-6">
-        <SiteSelector
-          company={company}
-          setCompany={setCompany}
-          sites={sites}
-          setSite={(val) => setSites({ ...sites, selected: val })}
-          onOpenSite={onOpenSite}
-        />
-        <div className="mt-6">Loading attendance for <b>{selectedSite}</b> ...</div>
-      </div>
-    );
-  }
-
-  if (siteData.error) {
-    return (
-      <div className="p-6">
-        <SiteSelector
-          company={company}
-          setCompany={setCompany}
-          sites={sites}
-          setSite={(val) => setSites({ ...sites, selected: val })}
-          onOpenSite={onOpenSite}
-        />
-        <div className="mt-6 text-red-600">Error: {siteData.message}</div>
-      </div>
-    );
-  }
-
-  // Render table
-  return (
-    <div className="p-6">
-      <SiteSelector
-        company={company}
-        setCompany={setCompany}
-        sites={sites}
-        setSite={(val) => setSites({ ...sites, selected: val })}
-        onOpenSite={onOpenSite}
-      />
-      <div className="mb-4 flex items-center gap-3">
-        <label className="text-sm">Month</label>
-        <input
-          type="number"
-          value={month}
-          min={1}
-          max={12}
-          onChange={(e) => setMonth(Number(e.target.value))}
-          className="w-20 border rounded px-2 py-1"
-        />
-        <input
-          type="number"
-          value={year}
-          onChange={(e) => setYear(Number(e.target.value))}
-          className="w-28 border rounded px-2 py-1"
-        />
-      </div>
-
-      <h2 className="text-lg font-semibold mb-2">
-        {siteData.siteTitle || selectedSite} — {month}/{year}
-      </h2>
+      )}
 
       <AttendanceTable
-        siteId={selectedSite}
-        siteTitle={siteData.siteTitle || selectedSite}
-        siteType={siteData.siteType || "Supply"}
-        employees={siteData.employees || []}
-        attendanceMap={siteData.attendanceMap || {}}
-        holidays={new Set(siteData.holidays || [])}
+        siteId={effectiveSiteId}
+        siteTitle={siteData.siteTitle}
+        siteType={siteData.siteType}
+        employees={siteData.employees}
+        attendanceMap={siteData.attendanceMap}
+        otMap={siteData.otMap}
+        holidays={siteData.holidays}
         year={year}
         month={month}
-        onSaved={() => {
-          
-          setSiteData(null);
-        }}
-        allowViewerEdit={false}
+        allowViewerEdit={role === "ADMIN"}
       />
     </div>
   );

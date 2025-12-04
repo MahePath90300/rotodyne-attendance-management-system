@@ -1,6 +1,5 @@
 // src/components/Login.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 function Login({
   onSubmit, // required: async function(formData) -> login logic done by parent
@@ -18,21 +17,28 @@ function Login({
   const [password, setPassword] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [company, setCompany] = useState(defaultCompany);
-  const [site, setSite] = useState("ALL");
+  const [site, setSite] = useState("");
   const [role, setRole] = useState(defaultRole);
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState("");
 
-  const navigate = useNavigate();
-
   const currentSites = useMemo(
     () => sitesByCompany?.[company] ?? [],
     [company, sitesByCompany]
   );
 
-  useEffect(() => setSite("ALL"), [company]);
+  useEffect(() => {
+    // whenever company (or sitesByCompany) changes,
+    // select the first site as default
+    const list = sitesByCompany?.[company] ?? [];
+    if (list.length > 0) {
+      setSite(list[0].id);
+    } else {
+      setSite("");
+    }
+  }, [company, sitesByCompany]);
 
   function validate() {
     const err = {};
@@ -41,6 +47,7 @@ function Login({
     if (!password.trim()) err.password = "Password is required";
     if (!employeeId.trim()) err.employeeId = "Employee ID is required";
     if (!role.trim()) err.role = "Role is Required";
+    if (!site.trim()) err.site = "Site is required";
     return err;
   }
 
@@ -61,12 +68,20 @@ function Login({
     setBusy(true);
     try {
       const data = { email, password, employeeId, company, site, role };
-      // IMPORTANT: delegate login to parent (which should call AuthContext.login)
-      await onSubmit(data);
+      const user = await onSubmit(data);
+      const roleUSer = (user?.role || "").toUpperCase();
+      let siteId;
+      if (roleUSer === "SITE_ENGINEER") {
+        // site engineer is locked to the site from backend
+        siteId = user.site;
+      } else {
+        // admin / viewer → use site selected in login form
+        siteId = data.site || user.site || "GARADWARA"; // fallback if needed
+      }
 
-      // At this point the parent should have set the global user
-      // navigate to dashboard
-      navigate("/dashboard");
+      if (!siteId) {
+        throw new Error("No site assigned to this user.");
+      }
     } catch (loginError) {
       // show message from parent
       setFormError(loginError?.message || "Login failed");
@@ -225,15 +240,19 @@ function Login({
                 <select
                   value={site}
                   onChange={(e) => setSite(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
+                  className={`mt-1 block w-full rounded-md border px-3 py-2 ${
+                    errors.site ? "border-red-500" : "border-slate-300"
+                  }`}
                 >
-                  <option value="ALL">All Sites</option>
                   {currentSites.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
                     </option>
                   ))}
                 </select>
+                {errors.site && (
+                  <p className="text-xs text-red-600 mt-1">{errors.site}</p>
+                )}
               </div>
             </div>
 
@@ -245,7 +264,7 @@ function Login({
                 onChange={(e) => setRole(e.target.value)}
                 className={`mt-1 block w-full rounded-md border px-3 py-2 ${errors.role ? "border-red-500" : "border-slate-300"}`}
               >
-                <option value="RES">SITE ENGINEER</option>
+                <option value="SITE_ENGINEER">SITE ENGINEER</option>
                 <option value="ADMIN">ADMIN</option>
                 <option value="VIEWER">VIEWER</option>
               </select>
