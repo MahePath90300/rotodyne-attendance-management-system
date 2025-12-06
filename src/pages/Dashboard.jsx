@@ -7,6 +7,23 @@ import { useAuth } from "../context/AuthenticationContext.jsx";
 import api from "../api/axios";
 import { buildMonthWindow } from "../utils/dates";
 import mockData from "../mock/attendance.mock";
+import Spinner from "../components/spinner.jsx";
+
+// Accept both "YYYY-MM-DD" and "25-Dec-25" etc.
+function normalizeHolidayISO(dateStr) {
+  if (!dateStr) return null;
+
+  // Already ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+
+  // Try to parse dd-MMM-yy (e.g. 25-Dec-25)
+  const parsed = Date.parse(dateStr);
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed).toISOString().slice(0, 10);
+  }
+
+  return null;
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -23,6 +40,7 @@ export default function Dashboard() {
   const [month, setMonth] = useState(now.getMonth() + 1);
 
   const [siteData, setSiteData] = useState(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -43,14 +61,19 @@ export default function Dashboard() {
         if (cancelled) return;
 
         const body = res.data || {};
-        const days = body.days || buildMonthWindow(year, month); // if buildMonthWindow returns array
+        const days = body.days || buildMonthWindow(year, month);
+
+        const holidayIsoList = (body.holidays || [])
+          .map(normalizeHolidayISO)
+          .filter(Boolean);
+
         setSiteData({
           siteTitle: body.siteTitle || effectiveSiteId,
-          siteType: body.siteType || "Supply",
+          siteType: body.siteType,
           employees: body.employees || [],
           attendanceMap: body.attendanceMap || {},
           otMap: body.otMap || {},
-          holidays: new Set(body.holidays || []),
+          holidays: new Set(holidayIsoList),
           days,
         });
       } catch (err) {
@@ -61,13 +84,17 @@ export default function Dashboard() {
         const mock = mockData[effectiveSiteId];
         if (mock) {
           const days = mock.days || buildMonthWindow(year, month);
+          const holidayIsoList = (mock.holidays || [])
+            .map(normalizeHolidayISO)
+            .filter(Boolean);
+
           setSiteData({
             siteTitle: mock.siteTitle || effectiveSiteId,
-            siteType: mock.siteType || "Supply",
+            siteType: mock.siteType,
             employees: mock.employees || [],
             attendanceMap: mock.attendanceMap || {},
             otMap: mock.otMap || {},
-            holidays: new Set(mock.holidays || []),
+            holidays: new Set(holidayIsoList),
             days,
           });
         } else {
@@ -83,11 +110,11 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveSiteId, year, month]);
+  }, [effectiveSiteId, year, month, reloadToken]);
 
   // ---------- render ----------
 
-  if (loading) return <div className="p-6">Loading...</div>;
+  if (loading) return <Spinner />;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
   if (!siteData)
     return <div className="p-6">No attendance data for this site.</div>;
@@ -132,6 +159,7 @@ export default function Dashboard() {
         year={year}
         month={month}
         allowViewerEdit={role === "ADMIN"}
+        onSaved={() => setReloadToken((t) => t + 1)}
       />
     </div>
   );
