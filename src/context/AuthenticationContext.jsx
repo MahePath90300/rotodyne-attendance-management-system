@@ -3,41 +3,40 @@ import PropTypes from "prop-types";
 import api from "../api/axios";
 import * as notify from "../utils/notify";
 
-
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true); // true until /me finishes
-  
-  async function login(credentials) {
-    try{
-       const payload = {
-      email: credentials.email,
-      password: credentials.password,
-      employeeId: credentials.employeeId,
-      company: credentials.company,
-      site: credentials.site,
-      role: credentials.role,
-    };
 
-    const res = await api.post("/api/v1/auth/login", payload);
-    const loggedUser = res?.data?.user ?? null;
-    setUser(loggedUser);
-    notify.success("Successfully Logged in");
-    return loggedUser;
-    }catch(err){
-      const message = err?.response?.data?.message || err?.message || "Login failed";
-       notify.error(message);
-       throw err;
+  async function login(credentials) {
+    try {
+      const payload = {
+        email: credentials.email,
+        password: credentials.password,
+        employeeId: credentials.employeeId,
+        company: credentials.company,
+        site: credentials.site,
+        role: credentials.role,
+      };
+
+      const res = await api.post("/api/v1/auth/login", payload);
+      const loggedUser = res?.data?.user ?? null;
+      setUser(loggedUser);
+      notify.success("Successfully Logged in");
+      return loggedUser;
+    } catch (err) {
+      const message =
+        err?.response?.data?.message || err?.message || "Login failed";
+      notify.error(message);
     }
   }
 
   // logout: call server to clear cookie and clear local state
- async function logout() {
+  async function logout() {
     try {
       await api.post("/api/v1/auth/logout");
-      notify.success("Logged out successfuly")
+      notify.success("Logged out successfuly");
     } catch (e) {
       // ignore network errors on logout
       notify.warn("Unable to contact server; local session cleared");
@@ -52,7 +51,7 @@ export function AuthProvider({ children }) {
 
     (async () => {
       try {
-        const res = await api.get("/api/v1/auth/me"); 
+        const res = await api.get("/api/v1/auth/me");
         if (mounted && res?.data?.user) {
           setUser(res.data.user);
         }
@@ -74,7 +73,6 @@ export function AuthProvider({ children }) {
 }
 
 export default AuthProvider;
-
 
 AuthProvider.propTypes = {
   children: PropTypes.node,

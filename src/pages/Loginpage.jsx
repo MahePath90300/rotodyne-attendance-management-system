@@ -5,42 +5,57 @@ import { useAuth } from "../context/AuthenticationContext";
 import * as notify from "../utils/notify";
 
 export default function Loginpage() {
-  // AuthContext.login should call backend and set user
   const navigate = useNavigate();
   const [error, setError] = useState("");
-  const { login, user } = useAuth();
+  const { login } = useAuth();
 
   async function handleLogin(formData) {
-    // This function will be passed to Login as onSubmit
     try {
-      const loggedInUser = await login(formData); // context login posts to /auth/login and sets global user
-      const role = (loggedInUser?.role || "").toUpperCase();
-      let siteId;
-      const siteFromUser = loggedInUser?.site;
-      const siteFromForm = formData.site;
-      const targetSite = siteFromUser || siteFromForm || "DADRI"; // sensible default
-      if (role === "SITE_ENGINEER") {
-        // locked to DB site
-        siteId = user.site;
-      } else {
-        // Admin / Viewer – prefer dropdown site, fallback to DB
-        siteId = formData.site || user.site || "GARADWARA";
+      // call backend + set context
+      const loggedInUser = await login(formData); // MUST return user from backend
+
+      if (!loggedInUser) {
+        throw new Error("Login failed");
       }
 
-      if (!siteId) throw new Error("No site assigned to this user.");
+      const dbRole = (loggedInUser.role || "").toUpperCase();
+      const dbSite = loggedInUser.site;
+      const requestedRole = (formData.role || "").toUpperCase();
+      const requestedSite = formData.site;
 
-      navigate(`/dashboard/${targetSite}`, { replace: true });
+      // 1) Validate role against DB
+      if (dbRole && requestedRole && dbRole !== requestedRole) {
+        throw new Error(
+          `You are registered as ${dbRole}, not ${requestedRole}.`
+        );
+      }
+
+      // 2) Decide which site to open
+      let targetSite;
+      if (dbRole === "SITE_ENGINEER") {
+        // site engineer ALWAYS locked to DB site
+        targetSite = dbSite;
+      } else {
+        // admin / viewer – use dropdown site first, then DB, finally fallback
+        targetSite = requestedSite || dbSite || "GADARWARA";
+      }
+
+      if (!targetSite) {
+        throw new Error("No site assigned to this user.");
+      }
+
+      // 3) Navigate
+      navigate(`/dashboard/${encodeURIComponent(targetSite)}`, {
+        replace: true,
+      });
     } catch (err) {
       const msg = err?.message || "Login failed";
       setError(msg);
       notify.error(msg);
-      // rethrow so Login component catches and shows error
+      // let Login component show its own message from props
+      throw err;
     }
   }
 
-  return (
-    <>
-      <Login onSubmit={handleLogin} />
-    </>
-  );
+  return <Login onSubmit={handleLogin} serverError={error} />;
 }

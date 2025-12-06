@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { addDays } from "date-fns";
+import { addDays, format } from "date-fns";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthenticationContext.jsx";
 import LogoutButton from "./LogoutButton.jsx";
@@ -15,7 +15,7 @@ function buildMonthDays(year, month) {
 
   const days = [];
   for (let d = start; d <= end; d = addDays(d, 1)) {
-    const iso = d.toISOString().slice(0, 10);
+    const iso = format(d, "yyyy-MM-dd"); // local-safe, no timezone shift
     days.push({
       iso,
       dayNum: d.getDate(),
@@ -26,6 +26,8 @@ function buildMonthDays(year, month) {
   return days;
 }
 
+const todayISO = () => format(new Date(), "yyyy-MM-dd");
+
 export default function AttendanceTable({
   siteId,
   siteTitle,
@@ -33,41 +35,45 @@ export default function AttendanceTable({
   employees = [],
   attendanceMap = {}, // { empNo: { dateIso: "PP" | "P" | "AA" | "A" | ... } }
   otMap = {}, // { empNo: { dateIso: numberHours } } optional
-  holidays = new Set(),
+  holidays = new Set(), // Set of "YYYY-MM-DD"
   year,
   month,
   allowViewerEdit = false,
+  onSaved,
 }) {
   const days = useMemo(() => buildMonthDays(year, month), [year, month]);
   const { user } = useAuth();
   const role = (user?.role || "VIEWER").toUpperCase();
 
-  // edits for status & OT
   const [statusEdits, setStatusEdits] = useState({});
   const [otEdits, setOtEdits] = useState({});
   const [saving, setSaving] = useState(false);
 
-  // status rules:
-  // PP = full-day present; P = half-day present
-  // AA = full-day absent; A = half-day absent
+  const isViewer = role === "VIEWER";
+
+  // === STATUS OPTIONS ===
+  // Keep codes short in the cells; descriptions are in Legend.
   const STATUS_OPTIONS = [
     { val: "-", label: "-" },
-    { val: "P", label: "P" }, // half-day present
     { val: "PP", label: "PP" }, // full-day present
-    { val: "A", label: "A" }, // half-day absent
+    { val: "P", label: "P" }, // half-day present
     { val: "AA", label: "AA" }, // full-day absent
-    { val: "HW", label: "HW" }, // holiday work
+    { val: "A", label: "A" }, // half-day absent
     { val: "LL", label: "LL" }, // leave
+    { val: "CC", label: "CC" }, // casual leave
+    { val: "WW", label: "WW" }, // week-off
+    { val: "HW", label: "HW" }, // holiday work
   ];
 
   const canEditStatus = (dateIso) => {
     if (role === "ADMIN") return true;
-    if (role === "VIEWER") return allowViewerEdit;
+    if (role === "VIEWER") return allowViewerEdit; // normally false
     if (role === "SITE_ENGINEER") {
-      const today = new Date().toISOString().slice(0, 10);
-      if (user.site && user.site.toUpperCase() !== siteId.toUpperCase())
+      const today = todayISO();
+      if (!user.site || user.site.toUpperCase() !== siteId.toUpperCase()) {
         return false;
-      return dateIso === today;
+      }
+      return dateIso === today; // only today
     }
     return false;
   };
@@ -75,47 +81,10 @@ export default function AttendanceTable({
   const canEditOT = (dateIso) => canEditStatus(dateIso);
 
   const getStatus = (empNo, dateIso) =>
-    statusEdits[empNo]?.[dateIso] ??
-    attendanceMap[empNo]?.[dateIso] ??
-    "";
+    statusEdits[empNo]?.[dateIso] ?? attendanceMap[empNo]?.[dateIso] ?? "";
 
   const getOT = (empNo, dateIso) =>
     otEdits[empNo]?.[dateIso] ?? otMap[empNo]?.[dateIso] ?? "";
-
-  /** cells with >2 consecutive absences (A / AA / AAA…) */
-  const flaggedAbsentCells = useMemo(() => {
-    const result = {}; // empNo -> Set(dateIso)
-
-    for (const e of employees) {
-      const absences = days.map((d) => {
-        const s = getStatus(e.empNo, d.iso);
-        return /^A+$/.test(s); // any run of A's counts
-      });
-
-      const flaggedDates = new Set();
-      let consec = 0;
-
-      for (let i = 0; i < days.length; i++) {
-        if (absences[i]) {
-          consec++;
-          if (consec > 2) {
-            // mark current and previous 2 (and they will stay marked as consec grows)
-            for (let j = i - 2; j <= i; j++) {
-              flaggedDates.add(days[j].iso);
-            }
-          }
-        } else {
-          consec = 0;
-        }
-      }
-
-      if (flaggedDates.size) {
-        result[e.empNo] = flaggedDates;
-      }
-    }
-
-    return result;
-  }, [employees, days, attendanceMap, statusEdits]);
 
   function setStatus(empNo, dateIso, val) {
     setStatusEdits((prev) => {
@@ -129,15 +98,107 @@ export default function AttendanceTable({
   function setOT(empNo, dateIso, val) {
     setOtEdits((prev) => {
       const emp = { ...(prev[empNo] || {}) };
-      if (val === "" || val == null) {
-        delete emp[dateIso];
-      } else {
-        emp[dateIso] = Number(val);
-      }
+      if (!val && val !== 0) delete emp[dateIso];
+      else emp[dateIso] = Number(val);
       return { ...prev, [empNo]: emp };
     });
   }
 
+  // === STATS PER EMPLOYEE ===
+  const computeRowStats = (empNo) => {
+    let otHours = 0;
+    let presentDays = 0; // PP = 1, P = 0.5
+    let leaves = 0; // LL
+    let weekOffs = 0; // WW
+    let casual = 0; // CC
+    let absents = 0; // AA = 1, A = 0.5
+
+    for (const d of days) {
+      const s = getStatus(empNo, d.iso);
+      const otVal = parseFloat(getOT(empNo, d.iso) || 0);
+      if (!Number.isNaN(otVal)) otHours += otVal;
+
+      switch (s) {
+        case "PP":
+          presentDays += 1;
+          break;
+        case "P":
+          presentDays += 0.5;
+          break;
+        case "AA":
+          absents += 1;
+          break;
+        case "A":
+          absents += 0.5;
+          break;
+        case "LL":
+          leaves += 1;
+          break;
+        case "WW":
+          weekOffs += 1;
+          break;
+        case "CC":
+          casual += 1;
+          break;
+        default:
+          break;
+      }
+    }
+
+    const totalDaysWorked = presentDays; // P + PP, in day units
+
+    return {
+      otHours,
+      presentDays,
+      leaves,
+      weekOffs,
+      casual,
+      absents,
+      totalDaysWorked,
+    };
+  };
+
+  // === Per-cell >2 consecutive absences detection (A / AA per employee) ===
+  const flaggedAbsenceCells = useMemo(() => {
+    const map = {}; // { empNo: Set(dateIso) }
+
+    for (const emp of employees) {
+      const empNo = emp.empNo;
+      let streakA = [];
+      let streakAA = [];
+
+      for (const d of days) {
+        const s = getStatus(empNo, d.iso);
+
+        // Half-day absent
+        if (s === "A") {
+          streakA.push(d.iso);
+        } else {
+          streakA = [];
+        }
+
+        // Full-day absent
+        if (s === "AA") {
+          streakAA.push(d.iso);
+        } else {
+          streakAA = [];
+        }
+
+        if (streakA.length >= 3) {
+          if (!map[empNo]) map[empNo] = new Set();
+          streakA.forEach((iso) => map[empNo].add(iso));
+        }
+        if (streakAA.length >= 3) {
+          if (!map[empNo]) map[empNo] = new Set();
+          streakAA.forEach((iso) => map[empNo].add(iso));
+        }
+      }
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees, days, attendanceMap, statusEdits]);
+
+  // === SAVE ===
   async function handleSave() {
     const updates = [];
     for (const empNo of Object.keys(statusEdits)) {
@@ -151,11 +212,30 @@ export default function AttendanceTable({
     for (const empNo of Object.keys(otEdits)) {
       const dates = otEdits[empNo];
       for (const dateIso of Object.keys(dates)) {
-        otUpdates.push({ empNo, date: dateIso, hours: otEdits[empNo][dateIso] });
+        otUpdates.push({ empNo, date: dateIso, hours: dates[dateIso] });
       }
     }
 
-    if (!updates.length && !otUpdates.length) {
+    // monthly summaries for ALL employees
+    const summaries = employees.map((emp) => {
+      const stats = computeRowStats(emp.empNo);
+      return {
+        empNo: emp.empNo,
+        siteId,
+        year,
+        month,
+        otHours: stats.otHours,
+        totalPresentDays: stats.presentDays,
+        totalAbsents: stats.absents,
+        totalLeaves: stats.leaves,
+        totalWeekOffs: stats.weekOffs,
+        totalCasualLeaves: stats.casual,
+        totalDaysWorked: stats.totalDaysWorked,
+        totalCalendarDays: days.length,
+      };
+    });
+
+    if (!updates.length && !otUpdates.length && !summaries.length) {
       notify.info?.("No changes to save");
       return;
     }
@@ -165,30 +245,231 @@ export default function AttendanceTable({
       await api.put(`/api/v1/attendance/site/${siteId}/bulk`, {
         updates,
         otUpdates,
+        summaries,
       });
       notify.success?.("Saved");
       setStatusEdits({});
       setOtEdits({});
+      if (typeof onSaved === "function") {
+        onSaved(); // trigger Dashboard re-fetch
+      }
     } catch (err) {
-      const msg =
-        err?.response?.data?.message || err.message || "Save failed";
+      const msg = err?.response?.data?.message || "Save failed";
       notify.error?.(msg);
     } finally {
       setSaving(false);
     }
   }
 
+  // === EMPLOYEE ORDER: sort by name ascending ===
+  const sortedEmployees = useMemo(
+    () =>
+      [...employees].sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), "en", {
+          sensitivity: "base",
+        })
+      ),
+    [employees]
+  );
+
+  // Supply first, then BOQ (using manpowerType / siteType from collection)
+  const { supplyEmployees, boqEmployees } = useMemo(() => {
+    const supply = [];
+    const boq = [];
+    for (const e of sortedEmployees) {
+      const type = (e.manpowerType || e.siteType || "").toLowerCase();
+      if (type === "boq") boq.push(e);
+      else supply.push(e); // default to supply if not explicitly BOQ
+    }
+    return { supplyEmployees: supply, boqEmployees: boq };
+  }, [sortedEmployees]);
+
   const leftSticky = "sticky left-0 bg-white z-20";
   const headerSticky = "sticky top-0 z-30 bg-amber-50";
+
+  const renderEmployeeRows = (emp, rowIndex) => {
+    const empNo = emp.empNo;
+    const flaggedSet = flaggedAbsenceCells[empNo] || new Set();
+    const stats = computeRowStats(empNo);
+
+    const manpowerType = (
+      emp.manpowerType ||
+      emp.siteType ||
+      siteType ||
+      ""
+    ).toUpperCase();
+
+    return (
+      <React.Fragment key={empNo}>
+        {/* Row 1: status */}
+        <tr className="border-b">
+          <td
+            className={`${leftSticky} border px-2 py-1 bg-white text-center w-10`}
+          >
+            {rowIndex + 1}
+          </td>
+          <td
+            className={`${leftSticky} border px-2 py-1 bg-white text-center w-24`}
+          >
+            {emp.empNo}
+          </td>
+          <td
+            className={`${leftSticky} border px-2 py-1 bg-white text-left w-56`}
+          >
+            {emp.name}
+          </td>
+          <td className="border px-2 py-1 text-center w-24">
+            {emp.designation}
+          </td>
+          <td className="border px-2 py-1 text-center w-24">{emp.category}</td>
+          <td className="border px-2 py-1 text-center w-24">
+            {manpowerType || "-"}
+          </td>
+
+          {days.map((d) => {
+            const s = getStatus(empNo, d.iso);
+            const editable = canEditStatus(d.iso);
+            const isHoliday = holidays.has(d.iso);
+            const isSunday = d.isSunday;
+            const isFlagged = flaggedSet.has(d.iso);
+            let bg = "bg-emerald-50";
+
+            // Holiday + Sunday styling
+            if (isSunday) bg = "bg-amber-100";
+            if (isHoliday) bg = "bg-rose-100";
+
+            // Holiday work cell gets special bright highlight
+            if (isHoliday && s === "HW") {
+              bg = "bg-lime-200";
+            }
+
+            const flaggedRing = isFlagged
+              ? "ring-2 ring-rose-400 ring-offset-1"
+              : "";
+
+            const baseTextClass =
+              s === "AA" || s === "A"
+                ? "border-rose-500 text-rose-700 font-semibold"
+                : "border-slate-300 text-slate-800";
+
+            return (
+              <td
+                key={d.iso}
+                className={`border px-1 py-1 w-18 text-center align-middle ${bg}`}
+              >
+                {editable ? (
+                  <select
+                    value={s}
+                    onChange={(e) => setStatus(empNo, d.iso, e.target.value)}
+                    className={`w-full min-w-[48px] h-7 text-[12px] leading-tight rounded-md border px-1 text-center bg-white ${baseTextClass} ${flaggedRing}`}
+                  >
+                    {STATUS_OPTIONS.map((opt, i) => (
+                      <option key={opt.val} value={opt.val}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span
+                    className={`inline-flex min-w-[32px] h-7 items-center justify-center text-[12px] rounded-md border px-1 ${
+                      s ? baseTextClass : "border-slate-200 text-slate-400"
+                    } ${flaggedRing}`}
+                  >
+                    {s || "-"}
+                  </span>
+                )}
+              </td>
+            );
+          })}
+
+          {/* Totals */}
+          <td className="border px-1 py-1 text-center w-14 text-medium"></td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {days.length}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.presentDays || ""}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.leaves || ""}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.casual || ""}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.absents || ""}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.weekOffs || ""}
+          </td>
+        </tr>
+
+        {/* Row 2: OT / HW hours */}
+        <tr className="border-b bg-sky-50/40">
+          <td
+            className={`${leftSticky} border px-2 py-1 bg-sky-50/40 text-right text-[10px] w-10`}
+          ></td>
+          <td className={`${leftSticky} border px-2 py-1 bg-sky-50/40`} />
+          <td className={`${leftSticky} border px-2 py-1 bg-sky-50/40`} />
+          <td className="border px-2 py-1 text-[10px] text-right" colSpan={3}>
+            OT Hrs:
+          </td>
+
+          {days.map((d) => {
+            const value = getOT(empNo, d.iso);
+            const editable = canEditOT(d.iso);
+            const isHoliday = holidays.has(d.iso);
+            const isSunday = d.isSunday;
+
+            let bg = "bg-emerald-50/40";
+            if (isSunday) bg = "bg-amber-50";
+            if (isHoliday) bg = "bg-rose-50";
+
+            return (
+              <td
+                key={d.iso}
+                className={`border px-1 py-1 w-18 text-center align-middle ${bg}`}
+              >
+                {editable ? (
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={value}
+                    onChange={(e) => setOT(empNo, d.iso, e.target.value)}
+                    className="w-full min-w-[45px] text-[12px] border rounded px-1 py-[2px] 
+                    text-center appearance-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                ) : (
+                  <span className="text-[13px]">{value}</span>
+                )}
+              </td>
+            );
+          })}
+
+          {/* OT totals row placeholders – optional extension later */}
+          <td className="border px-1 py-1 text-center text-[13px]">
+            {stats.otHours}
+          </td>
+          <td className="border px-1 py-1 text-center text-[11px]" />
+          <td className="border px-1 py-1 text-center text-[11px]" />
+          <td className="border px-1 py-1 text-center text-[11px]" />
+          <td className="border px-1 py-1 text-center text-[11px]" />
+          <td className="border px-1 py-1 text-center text-[11px]" />
+          <td className="border px-1 py-1 text-center text-[11px]" />
+        </tr>
+      </React.Fragment>
+    );
+  };
+
+  const canSave = role === "ADMIN" || role === "SITE_ENGINEER";
 
   return (
     <div className="border rounded bg-white flex flex-col">
       {/* top bar */}
       <div className="flex items-center justify-between px-4 py-2 border-b">
         <div>
-          <div className="text-sm font-semibold">
-            {siteTitle} ({siteType})
-          </div>
+          <div className="text-sm font-semibold">{siteTitle}</div>
           <div className="text-xs text-slate-500">
             Attendance period: 26/{month === 1 ? 12 : month - 1}/{year} – 25/
             {month}/{year}
@@ -197,25 +478,47 @@ export default function AttendanceTable({
         <LogoutButton />
       </div>
 
-      {/* table area */}
+      {/* table */}
       <div className="overflow-auto max-h-[70vh]">
         <table className="min-w-max text-xs border-collapse">
           <thead>
-            <tr className={`${headerSticky} text-center`}>
-              <th className={`${leftSticky} border px-2 py-2 w-12`}>Sl</th>
-              <th className={`${leftSticky} border px-2 py-2 w-24`}>Emp No</th>
-              <th className={`${leftSticky} border px-2 py-2 w-56`}>Name</th>
-              <th className="border px-2 py-2 w-32">Designation</th>
-              <th className="border px-2 py-2 w-20">Category</th>
+            <tr className={`${headerSticky}`}>
+              <th
+                className={`${leftSticky} border px-2 py-2 w-10 text-center bg-amber-50`}
+              >
+                Sl
+              </th>
+              <th
+                className={`${leftSticky} border px-2 py-2 w-24 text-center bg-amber-50`}
+              >
+                Emp No
+              </th>
+              <th
+                className={`${leftSticky} border px-2 py-2 w-56 text-center bg-amber-50`}
+              >
+                Name
+              </th>
+              <th className="border px-2 py-2 w-24 text-center bg-amber-50">
+                Designation
+              </th>
+              <th className="border px-2 py-2 w-24 text-center bg-amber-50">
+                Category
+              </th>
+              <th className="border px-2 py-2 w-24 text-center bg-amber-50">
+                Manpower Type
+              </th>
 
               {days.map((d) => {
-                const holiday = holidays.has(d.iso);
+                const isHoliday = holidays.has(d.iso);
+                const isSunday = d.isSunday;
+                let bg = "bg-emerald-50";
+                if (isSunday) bg = "bg-amber-100";
+                if (isHoliday) bg = "bg-rose-100";
+
                 return (
                   <th
                     key={d.iso}
-                    className={`border px-1 py-1 w-8 text-center ${
-                      d.isSunday ? "bg-amber-100" : ""
-                    } ${holiday ? "bg-rose-100" : ""}`}
+                    className={`border px-1 py-1 w-18 text-center ${bg}`}
                   >
                     <div className="font-semibold">{d.dayNum}</div>
                     <div className="text-[10px] text-slate-600">{d.dow}</div>
@@ -223,198 +526,97 @@ export default function AttendanceTable({
                 );
               })}
 
-              {/* simple totals cells placeholder */}
-              <th className="border px-2 py-2 w-16">OT</th>
-              <th className="border px-2 py-2 w-16">TD</th>
-              <th className="border px-2 py-2 w-16">PP</th>
-              <th className="border px-2 py-2 w-16">LL</th>
-              <th className="border px-2 py-2 w-16">CC</th>
-              <th className="border px-2 py-2 w-16">AA</th>
-              <th className="border px-2 py-2 w-16">WW</th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                OT
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                TD
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                PP
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                LL
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                CC
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                AA
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                WW
+              </th>
             </tr>
           </thead>
 
           <tbody>
-            {employees.map((emp, index) => {
-              const empFlagSet = flaggedAbsentCells[emp.empNo] || new Set();
+            {/* Supply first */}
+            {supplyEmployees.length > 0 && (
+              <tr>
+                <td
+                  colSpan={6 + days.length + 7}
+                  className="bg-sky-100 text-sky-900 font-semibold px-3 py-2 text-sm text-center"
+                >
+                  Supply Manpower
+                </td>
+              </tr>
+            )}
+            {supplyEmployees.map((emp, idx) => renderEmployeeRows(emp, idx))}
 
-              return (
-                <React.Fragment key={emp.empNo}>
-                  {/* Row 1: attendance codes */}
-                  <tr className="border-b text-center">
-                    <td className={`${leftSticky} border px-2 py-1 bg-white`}>
-                      {index + 1}
-                    </td>
-                    <td className={`${leftSticky} border px-2 py-1 bg-white`}>
-                      {emp.empNo}
-                    </td>
-                    <td className={`${leftSticky} border px-2 py-1 bg-white`}>
-                      {emp.name}
-                    </td>
-                    <td className="border px-2 py-1">{emp.designation}</td>
-                    <td className="border px-2 py-1">{emp.category}</td>
-
-                    {days.map((d) => {
-                      const s = getStatus(emp.empNo, d.iso);
-                      const editable = canEditStatus(d.iso);
-                      const holiday = holidays.has(d.iso);
-                      const isAbsent = /^A+$/.test(s);
-                      const isFlagged = isAbsent && empFlagSet.has(d.iso);
-
-                      const baseBg = holiday
-                        ? "bg-rose-50"
-                        : d.isSunday
-                        ? "bg-amber-50"
-                        : "bg-emerald-50"; // light green for working days
-
-                      const highlightBg = isFlagged
-                        ? "bg-rose-300 text-black"
-                        : isAbsent
-                        ? "bg-rose-200 text-red-900"
-                        : "text-slate-800";
-
-                      return (
-                        <td
-                          key={d.iso}
-                          className={`border px-1 py-1 align-middle ${baseBg}`}
-                        >
-                          {editable ? (
-                            <select
-                              value={s}
-                              onChange={(e) =>
-                                setStatus(emp.empNo, d.iso, e.target.value)
-                              }
-                              className={`text-center text-[11px] border rounded px-1 py-[1px] bg-transparent ${highlightBg}`}
-                            >
-                              {STATUS_OPTIONS.map((opt) => (
-                                <option key={opt.val} value={opt.val}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span
-                              className={`inline-block px-1 ${highlightBg}`}
-                            >
-                              {s}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-
-                    {/* simple totals (you can compute properly later) */}
-                    <td className="border px-1 py-1 text-center"></td>
-                    <td className="border px-1 py-1 text-center">0</td>
-                    <td className="border px-1 py-1 text-center">0</td>
-                    <td className="border px-1 py-1 text-center">0</td>
-                    <td className="border px-1 py-1 text-center">0</td>
-                    <td className="border px-1 py-1 text-center">0</td>
-                    <td className="border px-1 py-1 text-center">0</td>
-                  </tr>
-
-                  {/* Row 2: OT / Holiday work hours */}
-                  <tr className="border-b bg-sky-50/40 text-center">
-                    <td
-                      className={`${leftSticky} border px-2 py-1 bg-sky-50/40`}
-                    >
-                      <span className="text-[10px] text-slate-500">OT/HW</span>
-                    </td>
-                    <td
-                      className={`${leftSticky} border px-2 py-1 bg-sky-50/40`}
-                    />
-                    <td
-                      className={`${leftSticky} border px-2 py-1 bg-sky-50/40`}
-                    />
-                    <td
-                      className="border px-2 py-1 text-[11px] text-right"
-                      colSpan={2}
-                    >
-                      Hrs:
-                    </td>
-
-                    {days.map((d) => {
-                      const value = getOT(emp.empNo, d.iso);
-                      const editable = canEditOT(d.iso);
-                      const holiday = holidays.has(d.iso);
-                      const baseBg = holiday
-                        ? "bg-rose-50"
-                        : d.isSunday
-                        ? "bg-amber-50"
-                        : "bg-slate-50";
-
-                      return (
-                        <td
-                          key={d.iso}
-                          className={`border px-1 py-1 text-center ${baseBg}`}
-                        >
-                          {editable ? (
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.5"
-                              value={value}
-                              onChange={(e) =>
-                                setOT(emp.empNo, d.iso, e.target.value)
-                              }
-                              className="ot-hours w-10 mx-auto block text-center text-[11px] border rounded px-1 py-[1px] bg-white"
-                            />
-                          ) : (
-                            <span className="text-[11px]">{value}</span>
-                          )}
-                        </td>
-                      );
-                    })}
-
-                    {/* totals placeholder for OT row */}
-                    <td className="border px-1 py-1 text-center text-[11px]" />
-                    <td className="border px-1 py-1 text-center text-[11px]" />
-                    <td className="border px-1 py-1 text-center text-[11px]" />
-                    <td className="border px-1 py-1 text-center text-[11px]" />
-                    <td className="border px-1 py-1 text-center text-[11px]" />
-                    <td className="border px-1 py-1 text-center text-[11px]" />
-                    <td className="border px-1 py-1 text-center text-[11px]" />
-                  </tr>
-                </React.Fragment>
-              );
-            })}
+            {/* BOQ */}
+            {boqEmployees.length > 0 && (
+              <tr>
+                <td
+                  colSpan={6 + days.length + 7}
+                  className="bg-violet-100 text-violet-900 font-semibold px-3 py-2 text-sm text-center"
+                >
+                  BOQ Manpower
+                </td>
+              </tr>
+            )}
+            {boqEmployees.map((emp, idx) =>
+              renderEmployeeRows(emp, supplyEmployees.length + idx)
+            )}
           </tbody>
         </table>
       </div>
 
-      {/* bottom bar + legend */}
-      <div className="border-t px-4 py-2 flex items-center justify-between">
-        <span className="text-xs text-slate-500">
-          Edits:{" "}
-          {Object.values(statusEdits).reduce(
-            (sum, emp) => sum + Object.keys(emp).length,
-            0
-          ) +
-            Object.values(otEdits).reduce(
+      {/* bottom bar – hidden for VIEWER */}
+      {canSave && (
+        <div className="border-t px-4 py-2 flex items-center justify-between">
+          <span className="text-xs text-slate-500">
+            Edits:{" "}
+            {Object.values(statusEdits).reduce(
               (sum, emp) => sum + Object.keys(emp).length,
               0
-            )}
-        </span>
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              setStatusEdits({});
-              setOtEdits({});
-            }}
-            disabled={saving}
-            className="px-3 py-1 border rounded text-xs"
-          >
-            Discard
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-3 py-1 bg-sky-600 text-white rounded text-xs"
-          >
-            {saving ? "Saving..." : "Save changes"}
-          </button>
+            ) +
+              Object.values(otEdits).reduce(
+                (sum, emp) => sum + Object.keys(emp).length,
+                0
+              )}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setStatusEdits({});
+                setOtEdits({});
+              }}
+              disabled={saving}
+              className="px-3 py-1 border rounded text-xs"
+            >
+              Discard
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-3 py-1 bg-sky-600 text-white rounded text-xs"
+            >
+              {saving ? "Saving..." : "Save changes"}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="px-4">
         <Legend />

@@ -3,16 +3,18 @@ import React, { useEffect, useMemo, useState } from "react";
 
 function Login({
   onSubmit, // required: async function(formData) -> login logic done by parent
-  companies = [{ id: "RES", name: "RES" }],
-  sitesByCompany = {
+  defaultCompany = "RES",
+  defaultRole = "ADMIN",
+  serverError = "",
+}) {
+  const companies = [{ id: "RES", name: "RES" }];
+  const sitesByCompany = {
     RES: [
       { id: "GADARWARA", name: "GADARWARA" },
       { id: "DADRI", name: "DADRI" },
     ],
-  },
-  defaultCompany = "RES",
-  defaultRole = "ADMIN",
-}) {
+  };
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [employeeId, setEmployeeId] = useState("");
@@ -38,7 +40,7 @@ function Login({
     } else {
       setSite("");
     }
-  }, [company, sitesByCompany]);
+  }, [company]);
 
   function validate() {
     const err = {};
@@ -68,24 +70,9 @@ function Login({
     setBusy(true);
     try {
       const data = { email, password, employeeId, company, site, role };
-      const user = await onSubmit(data);
-      const roleUSer = (user?.role || "").toUpperCase();
-      let siteId;
-      if (roleUSer === "SITE_ENGINEER") {
-        // site engineer is locked to the site from backend
-        siteId = user.site;
-      } else {
-        // admin / viewer → use site selected in login form
-        siteId = data.site || user.site || "GARADWARA"; // fallback if needed
-      }
-
-      if (!siteId) {
-        throw new Error("No site assigned to this user.");
-      }
+      await onSubmit(data); // navigation happens in parent (Loginpage)
     } catch (loginError) {
-      // show message from parent
-      setFormError(loginError?.message || "Login failed");
-      throw loginError; // rethrow if parent needs to catch
+      setFormError("Login failed");
     } finally {
       setBusy(false);
     }
