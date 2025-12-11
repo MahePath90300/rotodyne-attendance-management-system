@@ -49,6 +49,14 @@ export default function AttendanceTable({
   const [otEdits, setOtEdits] = useState({});
   const [saving, setSaving] = useState(false);
 
+  const totalWorkingDaysInWindow = useMemo(() => {
+    return days.reduce((acc, d) => {
+      const isHoliday = holidays.has(d.iso);
+      if (d.isSunday || isHoliday) return acc;
+      return acc + 1;
+    }, 0);
+  }, [days, holidays]);
+
   const isViewer = role === "VIEWER";
 
   // === STATUS OPTIONS ===
@@ -62,7 +70,11 @@ export default function AttendanceTable({
     { val: "LL", label: "LL" }, // leave
     { val: "CC", label: "CC" }, // casual leave
     { val: "WW", label: "WW" }, // week-off
-    { val: "HW", label: "HW" }, // holiday work
+  ];
+
+  const HOLIDAY_OPTIONS = [
+    { val: "HH", label: "HH" },
+    { val: "HW", label: "HW" },
   ];
 
   const canEditStatus = (dateIso) => {
@@ -83,8 +95,45 @@ export default function AttendanceTable({
   const getStatus = (empNo, dateIso) =>
     statusEdits[empNo]?.[dateIso] ?? attendanceMap[empNo]?.[dateIso] ?? "";
 
+  // returns undefined when no OT stored (preserve ability to detect absence)
+  const getOTRaw = (empNo, dateIso) =>
+    otEdits[empNo] && typeof otEdits[empNo][dateIso] !== "undefined"
+      ? otEdits[empNo][dateIso]
+      : otMap[empNo] && typeof otMap[empNo][dateIso] !== "undefined"
+        ? otMap[empNo][dateIso]
+        : undefined;
+
   const getOT = (empNo, dateIso) =>
-    otEdits[empNo]?.[dateIso] ?? otMap[empNo]?.[dateIso] ?? "";
+    otEdits[empNo] && typeof otEdits[empNo][dateIso] !== "undefined"
+      ? otEdits[empNo][dateIso]
+      : otMap[empNo] && typeof otMap[empNo][dateIso] !== "undefined"
+        ? otMap[empNo][dateIso]
+        : 0;
+
+  function hasExplicitOT(empNo, dateIso) {
+    if (
+      otEdits[empNo] &&
+      Object.prototype.hasOwnProperty.call(otEdits[empNo], dateIso)
+    )
+      return true;
+    if (
+      otMap[empNo] &&
+      Object.prototype.hasOwnProperty.call(otMap[empNo], dateIso)
+    )
+      return true;
+    return false;
+  }
+
+  function getEffectiveStatus(empNo, dateIso, isHoliday, isSunday) {
+    const stored =
+      statusEdits[empNo]?.[dateIso] ?? attendanceMap[empNo]?.[dateIso] ?? "";
+    if (stored && String(stored).trim() !== "") return stored;
+
+    // If date is Sunday or a site holiday -> show HH (holiday) by default
+    if (isHoliday || isSunday) return "HH";
+
+    return "";
+  }
 
   function setStatus(empNo, dateIso, val) {
     setStatusEdits((prev) => {
@@ -98,26 +147,98 @@ export default function AttendanceTable({
   function setOT(empNo, dateIso, val) {
     setOtEdits((prev) => {
       const emp = { ...(prev[empNo] || {}) };
-      if (!val && val !== 0) delete emp[dateIso];
-      else emp[dateIso] = Number(val);
+      // treat empty string / null as delete
+      if (val === "" || val === null || typeof val === "undefined") {
+        delete emp[dateIso];
+      } else {
+        emp[dateIso] = Number(val);
+      }
       return { ...prev, [empNo]: emp };
     });
   }
 
+  function handleStatusChange(empNo, dateIso, val, isHoliday, isSunday) {
+    // set status first (user intent)
+    setStatus(empNo, dateIso, val);
+
+    // If user selected HW on holiday/sunday -> force OT = 8
+    if (val === "HW" && (isHoliday || isSunday)) {
+      setOT(empNo, dateIso, 8); // overwrite any previous value as per request
+      return;
+    }
+
+    // If changed to HH (holiday but not working) and previous might be 8 -> set OT to 0
+    if (val === "HH" && (isHoliday || isSunday)) {
+      // set explicitly to zero so backend persists OT = 0 for wage-sheet conversion
+      setOT(empNo, dateIso, 0);
+      return;
+    }
+
+    // If user changed away from HW to any other (non-HW) and previously we auto-set 8,
+    // clear it only if backend did not originally have a value (so we don't wipe real data).
+    if (val !== "HW") {
+      const prevOt =
+        otEdits[empNo] && typeof otEdits[empNo][dateIso] !== "undefined"
+          ? otEdits[empNo][dateIso]
+          : otMap[empNo]?.[dateIso];
+
+      if (
+        Number(prevOt) === 8 &&
+        !Object.prototype.hasOwnProperty.call(otMap[empNo] || {}, dateIso)
+      ) {
+        // delete the auto-filled edit
+        setOT(empNo, dateIso, "");
+      }
+    }
+  }
+
   // === STATS PER EMPLOYEE ===
+
   const computeRowStats = (empNo) => {
     let otHours = 0;
-    let presentDays = 0; // PP = 1, P = 0.5
-    let leaves = 0; // LL
-    let weekOffs = 0; // WW
-    let casual = 0; // CC
-    let absents = 0; // AA = 1, A = 0.5
+    let presentDays = 0;
+    let leaves = 0;
+    let weekOffs = 0;
+    let casual = 0;
+    let absents = 0;
+    let siteHolidays = 0;
 
     for (const d of days) {
-      const s = getStatus(empNo, d.iso);
-      const otVal = parseFloat(getOT(empNo, d.iso) || 0);
-      if (!Number.isNaN(otVal)) otHours += otVal;
+      const isHoliday = holidays.has(d.iso);
+      const isSunday = d.isSunday;
+      const s = getEffectiveStatus(empNo, d.iso, isHoliday, isSunday);
 
+      // OT decision: explicit OT preferred, otherwise HW on holiday/sunday -> 8h
+      const backendOtDefined =
+        otMap[empNo] && typeof otMap[empNo][d.iso] !== "undefined";
+      const editedOtDefined =
+        otEdits[empNo] && typeof otEdits[empNo][d.iso] !== "undefined";
+      const explicitOt = editedOtDefined
+        ? otEdits[empNo][d.iso]
+        : backendOtDefined
+          ? otMap[empNo][d.iso]
+          : undefined;
+
+      if (
+        typeof explicitOt !== "undefined" &&
+        !Number.isNaN(Number(explicitOt)) &&
+        Number(explicitOt) > 0
+      ) {
+        otHours += Number(explicitOt);
+      } else if (s === "HW" && (isHoliday || isSunday)) {
+        otHours += 8;
+      }
+
+      // Holiday count logic for wage-sheet HH:
+      // Count each Sunday/public holiday only once if worker did NOT do HW.
+      if (isHoliday || isSunday) {
+        if (s !== "HW") {
+          siteHolidays += 1; // count as HH (not worked)
+        }
+        // if s === "HW" do NOT increment — we've treated that as OT
+      }
+
+      // status-based increments (P/PP/A/AA/LL/WW/CC)
       switch (s) {
         case "PP":
           presentDays += 1;
@@ -140,12 +261,11 @@ export default function AttendanceTable({
         case "CC":
           casual += 1;
           break;
+        // DO NOT increment siteHolidays here; handled above
         default:
           break;
       }
     }
-
-    const totalDaysWorked = presentDays; // P + PP, in day units
 
     return {
       otHours,
@@ -154,7 +274,8 @@ export default function AttendanceTable({
       weekOffs,
       casual,
       absents,
-      totalDaysWorked,
+      totalDaysWorked: totalWorkingDaysInWindow,
+      siteHolidays,
     };
   };
 
@@ -168,7 +289,9 @@ export default function AttendanceTable({
       let streakAA = [];
 
       for (const d of days) {
-        const s = getStatus(empNo, d.iso);
+        const isHoliday = holidays.has(d.iso);
+        const isSunday = d.isSunday;
+        const s = getEffectiveStatus(empNo, d.iso, isHoliday, isSunday);
 
         // Half-day absent
         if (s === "A") {
@@ -196,7 +319,7 @@ export default function AttendanceTable({
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employees, days, attendanceMap, statusEdits]);
+  }, [employees, days, attendanceMap, statusEdits, otEdits]);
 
   // === SAVE ===
   async function handleSave() {
@@ -232,6 +355,7 @@ export default function AttendanceTable({
         totalCasualLeaves: stats.casual,
         totalDaysWorked: stats.totalDaysWorked,
         totalCalendarDays: days.length,
+        totalHolidays: stats.siteHolidays,
       };
     });
 
@@ -286,6 +410,11 @@ export default function AttendanceTable({
 
   const leftSticky = "sticky left-0 bg-white z-20";
   const headerSticky = "sticky top-0 z-30 bg-amber-50";
+  const boqSticky = "sticky top-9 z-30 bg-violet-100";
+  let supplySticky = "sticky top-9 z-30 bg-sky-100";
+  if (employees.siteType === "BOQ") {
+    supplySticky = "";
+  }
 
   const renderEmployeeRows = (emp, rowIndex) => {
     const empNo = emp.empNo;
@@ -322,15 +451,15 @@ export default function AttendanceTable({
             {emp.designation}
           </td>
           <td className="border px-2 py-1 text-center w-24">{emp.category}</td>
-          <td className="border px-2 py-1 text-center w-24">
+          {/* <td className="border px-2 py-1 text-center w-24">
             {manpowerType || "-"}
-          </td>
+          </td> */}
 
           {days.map((d) => {
-            const s = getStatus(empNo, d.iso);
             const editable = canEditStatus(d.iso);
             const isHoliday = holidays.has(d.iso);
             const isSunday = d.isSunday;
+            const s = getEffectiveStatus(empNo, d.iso, isHoliday, isSunday);
             const isFlagged = flaggedSet.has(d.iso);
             let bg = "bg-emerald-50";
 
@@ -340,6 +469,9 @@ export default function AttendanceTable({
 
             // Holiday work cell gets special bright highlight
             if (isHoliday && s === "HW") {
+              bg = "bg-lime-200";
+            }
+            if (isSunday && s === "HW") {
               bg = "bg-lime-200";
             }
 
@@ -352,6 +484,11 @@ export default function AttendanceTable({
                 ? "border-rose-500 text-rose-700 font-semibold"
                 : "border-slate-300 text-slate-800";
 
+            // choose options: if holiday/sunday -> enforce holiday options ONLY
+            const options =
+              isHoliday || isSunday ? HOLIDAY_OPTIONS : STATUS_OPTIONS;
+            const storedS = getStatus(empNo, d.iso); // original stored value (may be "")
+
             return (
               <td
                 key={d.iso}
@@ -359,11 +496,19 @@ export default function AttendanceTable({
               >
                 {editable ? (
                   <select
-                    value={s}
-                    onChange={(e) => setStatus(empNo, d.iso, e.target.value)}
+                    value={storedS || (isHoliday || isSunday ? "HH" : "")}
+                    onChange={(e) =>
+                      handleStatusChange(
+                        empNo,
+                        d.iso,
+                        e.target.value,
+                        isHoliday,
+                        isSunday
+                      )
+                    }
                     className={`w-full min-w-[48px] h-7 text-[12px] leading-tight rounded-md border px-1 text-center bg-white ${baseTextClass} ${flaggedRing}`}
                   >
-                    {STATUS_OPTIONS.map((opt, i) => (
+                    {options.map((opt, i) => (
                       <option key={opt.val} value={opt.val}>
                         {opt.label}
                       </option>
@@ -385,22 +530,25 @@ export default function AttendanceTable({
           {/* Totals */}
           <td className="border px-1 py-1 text-center w-14 text-medium"></td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {days.length}
+            {stats.totalDaysWorked || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.presentDays || ""}
+            {stats.presentDays || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.leaves || ""}
+            {stats.leaves || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.casual || ""}
+            {stats.casual || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.absents || ""}
+            {stats.absents || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.weekOffs || ""}
+            {stats.siteHolidays || 0}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.weekOffs || 0}
           </td>
         </tr>
 
@@ -411,12 +559,13 @@ export default function AttendanceTable({
           ></td>
           <td className={`${leftSticky} border px-2 py-1 bg-sky-50/40`} />
           <td className={`${leftSticky} border px-2 py-1 bg-sky-50/40`} />
-          <td className="border px-2 py-1 text-[10px] text-right" colSpan={3}>
+          <td className="border px-2 py-1 text-[10px] text-right" colSpan={2}>
             OT Hrs:
           </td>
 
           {days.map((d) => {
-            const value = getOT(empNo, d.iso);
+            const otRaw = getOTRaw(empNo, d.iso); // undefined if absent
+            const valueForInput = typeof otRaw === "undefined" ? 0 : otRaw;
             const editable = canEditOT(d.iso);
             const isHoliday = holidays.has(d.iso);
             const isSunday = d.isSunday;
@@ -424,6 +573,16 @@ export default function AttendanceTable({
             let bg = "bg-emerald-50/40";
             if (isSunday) bg = "bg-amber-50";
             if (isHoliday) bg = "bg-rose-50";
+
+            const otPositive =
+              typeof otRaw !== "undefined" ? Number(otRaw) > 0 : false;
+            const otViewerPositive =
+              typeof otRaw === "undefined"
+                ? getEffectiveStatus(empNo, d.iso, isHoliday, isSunday) ===
+                    "HW" &&
+                  (isHoliday || isSunday)
+                : // viewer shows computed 8 for HW; treat that as positive
+                  Number(otRaw) > 0;
 
             return (
               <td
@@ -435,13 +594,28 @@ export default function AttendanceTable({
                     type="number"
                     min="0"
                     step="0.5"
-                    value={value}
+                    value={valueForInput}
                     onChange={(e) => setOT(empNo, d.iso, e.target.value)}
-                    className="w-full min-w-[45px] text-[12px] border rounded px-1 py-[2px] 
-                    text-center appearance-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className={`w-full min-w-[44px] h-7 text-[13px] leading-tight rounded-md border px-1 text-center appearance-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${otPositive ? "ring-2 ring-amber-400" : ""}`}
                   />
                 ) : (
-                  <span className="text-[13px]">{value}</span>
+                  <span className="text-[11px]">
+                    {
+                      // viewer: show explicit value if present (including 0).
+                      // if no explicit value and status is HW on holiday/sunday, show 8
+                      typeof otRaw !== "undefined"
+                        ? otRaw
+                        : getEffectiveStatus(
+                              empNo,
+                              d.iso,
+                              isHoliday,
+                              isSunday
+                            ) === "HW" &&
+                            (isHoliday || isSunday)
+                          ? 8
+                          : ""
+                    }
+                  </span>
                 )}
               </td>
             );
@@ -504,9 +678,9 @@ export default function AttendanceTable({
               <th className="border px-2 py-2 w-24 text-center bg-amber-50">
                 Category
               </th>
-              <th className="border px-2 py-2 w-24 text-center bg-amber-50">
+              {/* <th className="border px-2 py-2 w-24 text-center bg-amber-50">
                 Manpower Type
-              </th>
+              </th> */}
 
               {days.map((d) => {
                 const isHoliday = holidays.has(d.iso);
@@ -545,6 +719,9 @@ export default function AttendanceTable({
                 AA
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                HH
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
                 WW
               </th>
             </tr>
@@ -553,10 +730,10 @@ export default function AttendanceTable({
           <tbody>
             {/* Supply first */}
             {supplyEmployees.length > 0 && (
-              <tr>
+              <tr className={`${supplySticky}`}>
                 <td
                   colSpan={6 + days.length + 7}
-                  className="bg-sky-100 text-sky-900 font-semibold px-3 py-2 text-sm text-center"
+                  className="bg-sky-100 text-sky-900 font-semibold px-3 py-2 text-sm"
                 >
                   Supply Manpower
                 </td>
@@ -566,10 +743,10 @@ export default function AttendanceTable({
 
             {/* BOQ */}
             {boqEmployees.length > 0 && (
-              <tr>
+              <tr className={`${boqSticky}`}>
                 <td
                   colSpan={6 + days.length + 7}
-                  className="bg-violet-100 text-violet-900 font-semibold px-3 py-2 text-sm text-center"
+                  className="bg-violet-100 text-violet-900 font-semibold px-3 py-2 text-sm"
                 >
                   BOQ Manpower
                 </td>

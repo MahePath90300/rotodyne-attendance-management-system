@@ -44,22 +44,18 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
+  // ---------- paste this inside Dashboard component (e.g. after normalizeHolidayISO) ----------
+  async function fetchData(opts = { retries: 2, backoffMs: 500 }) {
+    const { retries, backoffMs } = opts;
+    setLoading(true);
+    setError("");
 
-    async function load() {
-      setLoading(true);
-      setError("");
+    // cache-buster param to avoid 304 stale responses after a PUT
+    const url = `/api/v1/attendance/site/${encodeURIComponent(effectiveSiteId)}?year=${year}&month=${month}&_ts=${Date.now()}`;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        // --- API call ---
-        const res = await api.get(
-          `/api/v1/attendance/site/${encodeURIComponent(
-            effectiveSiteId
-          )}?year=${year}&month=${month}`
-        );
-
-        if (cancelled) return;
-
+        const res = await api.get(url);
         const body = res.data || {};
         const days = body.days || buildMonthWindow(year, month);
 
@@ -76,41 +72,92 @@ export default function Dashboard() {
           holidays: new Set(holidayIsoList),
           days,
         });
+
+        setLoading(false);
+        return; // success => exit
       } catch (err) {
-        console.error("Attendance API failed:", err?.message || err);
-        if (cancelled) return;
-
-        // --- fallback to mock ---
-        const mock = mockData[effectiveSiteId];
-        if (mock) {
-          const days = mock.days || buildMonthWindow(year, month);
-          const holidayIsoList = (mock.holidays || [])
-            .map(normalizeHolidayISO)
-            .filter(Boolean);
-
-          setSiteData({
-            siteTitle: mock.siteTitle || effectiveSiteId,
-            siteType: mock.siteType,
-            employees: mock.employees || [],
-            attendanceMap: mock.attendanceMap || {},
-            otMap: mock.otMap || {},
-            holidays: new Set(holidayIsoList),
-            days,
-          });
-        } else {
-          setError(`Unable to load data for ${effectiveSiteId}.`);
-          setSiteData(null);
+        const status = err?.response?.status;
+        // immediate non-retry errors
+        if (status === 401) {
+          setError("Unauthorized (401). Please login again.");
+          setLoading(false);
+          return;
         }
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (status === 403) {
+          setError(
+            "Access denied (403). You don't have permission to view this site."
+          );
+          setLoading(false);
+          return;
+        }
+
+        // last attempt - try fallback/mock or show user error
+        if (attempt === retries) {
+          console.error("fetchData failed:", err);
+          // fallback to mock if present
+          const mock = mockData[effectiveSiteId];
+          if (mock) {
+            const days = mock.days || buildMonthWindow(year, month);
+            const holidayIsoList = (mock.holidays || [])
+              .map(normalizeHolidayISO)
+              .filter(Boolean);
+            setSiteData({
+              siteTitle: mock.siteTitle || effectiveSiteId,
+              siteType: mock.siteType,
+              employees: mock.employees || [],
+              attendanceMap: mock.attendanceMap || {},
+              otMap: mock.otMap || {},
+              holidays: new Set(holidayIsoList),
+              days,
+            });
+            setLoading(false);
+            return;
+          } else {
+            setError(`Unable to load data for ${effectiveSiteId}.`);
+            setSiteData(null);
+            setLoading(false);
+            return;
+          }
+        }
+
+        // otherwise retry after backoff
+        await new Promise((r) => setTimeout(r, backoffMs * (attempt + 1)));
       }
     }
+  }
 
-    load();
+  // UseEffect: call fetchData initially and on deps change
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await fetchData({ retries: 2, backoffMs: 400 });
+      if (cancelled) return;
+    })();
     return () => {
       cancelled = true;
     };
   }, [effectiveSiteId, year, month, reloadToken]);
+
+  async function handleExport() {
+    try {
+      const res = await api.get(
+        `/api/v1/wage/site/${effectiveSiteId}/export?year=${year}&month=${month}`,
+        { responseType: "blob" }
+      );
+
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `wage_sheet_${effectiveSiteId}_${year}_${month}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
   // ---------- render ----------
 
@@ -145,6 +192,14 @@ export default function Dashboard() {
             onChange={(e) => setYear(Number(e.target.value))}
             className="w-24 border rounded px-2 py-1 text-sm"
           />
+          {role === "ADMIN" && (
+            <button
+              onClick={handleExport}
+              className="ml-auto px-3 py-1 bg-emerald-600 text-white rounded text-md"
+            >
+              Export wage sheet (Excel)
+            </button>
+          )}
         </div>
       )}
 
