@@ -25,11 +25,16 @@ export default function Legend() {
             <span className="inline-block w-3 h-3 rounded bg-lime-200 border border-lime-400" />
             <span>Holiday work (HW on holiday)</span>
           </div>
+
+            <div className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 rounded bg-amber-400 border border-amber-600" />
+            <span>OT cell greater than 0</span>
+          </div>
           <div className="flex items-center gap-2">
             <span className="inline-block w-3 h-3 rounded bg-rose-50 border border-rose-500 ring-2 ring-rose-400/70" />
             <span>
-              Cell highlighted – worker absent (&quot;A&quot; / &quot;AA&quot;)
-              for greate than 2 consecutive days
+              Cell highlighted – worker absent (&quot;AA&quot;) for greater than
+              2 consecutive days
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -83,6 +88,12 @@ export default function Legend() {
               WW
             </Pill>
             <span> - Week Off</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Pill className="bg-indigo-100 text-indigo-800 border-indigo-300">
+              HH
+            </Pill>
+            <span> - Holiday</span>
           </div>
           <div className="flex items-center gap-2">
             <Pill className="bg-indigo-100 text-indigo-800 border-indigo-300">
