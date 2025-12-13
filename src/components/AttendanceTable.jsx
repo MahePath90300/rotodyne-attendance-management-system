@@ -70,11 +70,15 @@ export default function AttendanceTable({
     { val: "LL", label: "LL" }, // leave
     { val: "CC", label: "CC" }, // casual leave
     { val: "WW", label: "WW" }, // week-off
+    { val: "HH", label: "HH" },
   ];
 
   const HOLIDAY_OPTIONS = [
     { val: "HH", label: "HH" },
     { val: "HW", label: "HW" },
+    { val: "PP", label: "PP" },
+    { val: "P", label: "P" },
+    { val: "AA", label: "AA" },
   ];
 
   const canEditStatus = (dateIso) => {
@@ -202,6 +206,7 @@ export default function AttendanceTable({
     let casual = 0;
     let absents = 0;
     let siteHolidays = 0;
+    let holidayWorkingDays = 0;
 
     for (const d of days) {
       const isHoliday = holidays.has(d.iso);
@@ -261,6 +266,9 @@ export default function AttendanceTable({
         case "CC":
           casual += 1;
           break;
+          case "HW":
+          holidayWorkingDays += 1;
+          break;
         // DO NOT increment siteHolidays here; handled above
         default:
           break;
@@ -276,6 +284,7 @@ export default function AttendanceTable({
       absents,
       totalDaysWorked: totalWorkingDaysInWindow,
       siteHolidays,
+      holidayWorkingDays
     };
   };
 
@@ -545,6 +554,9 @@ export default function AttendanceTable({
             {stats.absents || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.holidayWorkingDays || 0}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
             {stats.siteHolidays || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
@@ -719,6 +731,9 @@ export default function AttendanceTable({
                 AA
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                HW
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
                 HH
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
@@ -732,7 +747,7 @@ export default function AttendanceTable({
             {supplyEmployees.length > 0 && (
               <tr className={`${supplySticky}`}>
                 <td
-                  colSpan={6 + days.length + 7}
+                  colSpan={6 + days.length + 8}
                   className="bg-sky-100 text-sky-900 font-semibold px-3 py-2 text-sm"
                 >
                   Supply Manpower
@@ -745,7 +760,7 @@ export default function AttendanceTable({
             {boqEmployees.length > 0 && (
               <tr className={`${boqSticky}`}>
                 <td
-                  colSpan={6 + days.length + 7}
+                  colSpan={6 + days.length + 8}
                   className="bg-violet-100 text-violet-900 font-semibold px-3 py-2 text-sm"
                 >
                   BOQ Manpower
