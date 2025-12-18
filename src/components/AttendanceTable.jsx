@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { addDays, format } from "date-fns";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthenticationContext.jsx";
@@ -49,6 +49,40 @@ export default function AttendanceTable({
   const [otEdits, setOtEdits] = useState({});
   const [saving, setSaving] = useState(false);
 
+  const [designationFilter, setDesignationFilter] = useState("ALL");
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
+
+  const supplyRef = useRef(null);
+  const boqRef = useRef(null);
+
+  const [activeSection, setActiveSection] = useState(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            if (entry.target === supplyRef.current) {
+              setActiveSection("SUPPLY");
+            }
+            if (entry.target === boqRef.current) {
+              setActiveSection("BOQ");
+            }
+          }
+        });
+      },
+      {
+        root: document.querySelector(".attendance-scroll"),
+        threshold: 0.1,
+      }
+    );
+
+    if (supplyRef.current) observer.observe(supplyRef.current);
+    if (boqRef.current) observer.observe(boqRef.current);
+
+    return () => observer.disconnect();
+  }, []);
+
   const totalWorkingDaysInWindow = useMemo(() => {
     return days.reduce((acc, d) => {
       const isHoliday = holidays.has(d.iso);
@@ -63,22 +97,25 @@ export default function AttendanceTable({
   // Keep codes short in the cells; descriptions are in Legend.
   const STATUS_OPTIONS = [
     { val: "-", label: "-" },
-    { val: "PP", label: "PP" }, // full-day present
+    // { val: "PP", label: "PP" }, // full-day present
     { val: "P", label: "P" }, // half-day present
-    { val: "AA", label: "AA" }, // full-day absent
+    // { val: "AA", label: "AA" }, // full-day absent
     { val: "A", label: "A" }, // half-day absent
-    { val: "LL", label: "LL" }, // leave
-    { val: "CC", label: "CC" }, // casual leave
-    { val: "WW", label: "WW" }, // week-off
-    { val: "HH", label: "HH" },
+    { val: "L", label: "L" }, // leave
+    { val: "C Off", label: "C Off" }, // comp off leave
+    { val: "WO", label: "WO" }, // week-off
+    { val: "WOW", label: "WOW" },
+    { val: "HP", label: "HP" }, //half day
+  ];
+
+  const SUNDAY_OPTIONS = [
+    { val: "WO", label: "WO" },
+    { val: "WOW", label: "WOW" },
   ];
 
   const HOLIDAY_OPTIONS = [
-    { val: "HH", label: "HH" },
+    { val: "H", label: "H" },
     { val: "HW", label: "HW" },
-    { val: "PP", label: "PP" },
-    { val: "P", label: "P" },
-    { val: "AA", label: "AA" },
   ];
 
   const canEditStatus = (dateIso) => {
@@ -131,10 +168,11 @@ export default function AttendanceTable({
   function getEffectiveStatus(empNo, dateIso, isHoliday, isSunday) {
     const stored =
       statusEdits[empNo]?.[dateIso] ?? attendanceMap[empNo]?.[dateIso] ?? "";
-    if (stored && String(stored).trim() !== "") return stored;
 
-    // If date is Sunday or a site holiday -> show HH (holiday) by default
-    if (isHoliday || isSunday) return "HH";
+    if (stored) return stored;
+
+    if (isSunday) return "WO";
+    if (isHoliday) return "H";
 
     return "";
   }
@@ -161,39 +199,8 @@ export default function AttendanceTable({
     });
   }
 
-  function handleStatusChange(empNo, dateIso, val, isHoliday, isSunday) {
-    // set status first (user intent)
+  function handleStatusChange(empNo, dateIso, val) {
     setStatus(empNo, dateIso, val);
-
-    // If user selected HW on holiday/sunday -> force OT = 8
-    if (val === "HW" && (isHoliday || isSunday)) {
-      setOT(empNo, dateIso, 8); // overwrite any previous value as per request
-      return;
-    }
-
-    // If changed to HH (holiday but not working) and previous might be 8 -> set OT to 0
-    if (val === "HH" && (isHoliday || isSunday)) {
-      // set explicitly to zero so backend persists OT = 0 for wage-sheet conversion
-      setOT(empNo, dateIso, 0);
-      return;
-    }
-
-    // If user changed away from HW to any other (non-HW) and previously we auto-set 8,
-    // clear it only if backend did not originally have a value (so we don't wipe real data).
-    if (val !== "HW") {
-      const prevOt =
-        otEdits[empNo] && typeof otEdits[empNo][dateIso] !== "undefined"
-          ? otEdits[empNo][dateIso]
-          : otMap[empNo]?.[dateIso];
-
-      if (
-        Number(prevOt) === 8 &&
-        !Object.prototype.hasOwnProperty.call(otMap[empNo] || {}, dateIso)
-      ) {
-        // delete the auto-filled edit
-        setOT(empNo, dateIso, "");
-      }
-    }
   }
 
   // === STATS PER EMPLOYEE ===
@@ -203,10 +210,11 @@ export default function AttendanceTable({
     let presentDays = 0;
     let leaves = 0;
     let weekOffs = 0;
-    let casual = 0;
     let absents = 0;
     let siteHolidays = 0;
     let holidayWorkingDays = 0;
+    let weekOffWorking = 0;
+    let cOffDays = 0;
 
     for (const d of days) {
       const isHoliday = holidays.has(d.iso);
@@ -234,42 +242,35 @@ export default function AttendanceTable({
         otHours += 8;
       }
 
-      // Holiday count logic for wage-sheet HH:
-      // Count each Sunday/public holiday only once if worker did NOT do HW.
-      if (isHoliday || isSunday) {
-        if (s !== "HW") {
-          siteHolidays += 1; // count as HH (not worked)
-        }
-        // if s === "HW" do NOT increment — we've treated that as OT
+      if (isSunday) {
+        if (s === "WO") weekOffs += 1;
+        if (s === "WOW") weekOffWorking += 1;
+        continue;
+      }
+
+      if (isHoliday) {
+        if (s === "H") siteHolidays += 1;
+        if (s === "HW") holidayWorkingDays += 1;
+        continue;
       }
 
       // status-based increments (P/PP/A/AA/LL/WW/CC)
       switch (s) {
-        case "PP":
+        case "P":
           presentDays += 1;
           break;
-        case "P":
+        case "HD":
           presentDays += 0.5;
           break;
-        case "AA":
+        case "A":
           absents += 1;
           break;
-        case "A":
-          absents += 0.5;
-          break;
-        case "LL":
+        case "L":
           leaves += 1;
           break;
-        case "WW":
-          weekOffs += 1;
+        case "C Off":
+          cOffDays += 1;
           break;
-        case "CC":
-          casual += 1;
-          break;
-          case "HW":
-          holidayWorkingDays += 1;
-          break;
-        // DO NOT increment siteHolidays here; handled above
         default:
           break;
       }
@@ -280,11 +281,12 @@ export default function AttendanceTable({
       presentDays,
       leaves,
       weekOffs,
-      casual,
       absents,
       totalDaysWorked: totalWorkingDaysInWindow,
       siteHolidays,
-      holidayWorkingDays
+      holidayWorkingDays,
+      weekOffWorking,
+      cOffDays,
     };
   };
 
@@ -360,8 +362,8 @@ export default function AttendanceTable({
         totalPresentDays: stats.presentDays,
         totalAbsents: stats.absents,
         totalLeaves: stats.leaves,
-        totalWeekOffs: stats.weekOffs,
-        totalCasualLeaves: stats.casual,
+        totalWeekOffs: Number(stats.weekOffs)+ Number(stats.weekOffWorking),
+        totalWeekOffWorking: stats.weekOffWorking || 0,
         totalDaysWorked: stats.totalDaysWorked,
         totalCalendarDays: days.length,
         totalHolidays: stats.siteHolidays,
@@ -406,26 +408,52 @@ export default function AttendanceTable({
   );
 
   // Supply first, then BOQ (using manpowerType / siteType from collection)
+  const filteredEmployees = useMemo(() => {
+    return sortedEmployees.filter((emp) => {
+      const designationMatch =
+        designationFilter === "ALL" || emp.designation === designationFilter;
+
+      const categoryMatch =
+        categoryFilter === "ALL" || emp.category === categoryFilter;
+
+      return designationMatch && categoryMatch;
+    });
+  }, [sortedEmployees, designationFilter, categoryFilter]);
+
   const { supplyEmployees, boqEmployees } = useMemo(() => {
     const supply = [];
     const boq = [];
-    for (const e of sortedEmployees) {
+
+    for (const e of filteredEmployees) {
       const type = (e.manpowerType || e.siteType || "").toLowerCase();
       if (type === "boq") boq.push(e);
-      else supply.push(e); // default to supply if not explicitly BOQ
+      else supply.push(e);
     }
     return { supplyEmployees: supply, boqEmployees: boq };
+  }, [filteredEmployees]);
+
+  const designationOptions = useMemo(() => {
+    const set = new Set(
+      sortedEmployees.map((e) => e.designation).filter(Boolean)
+    );
+    return ["ALL", ...Array.from(set)];
   }, [sortedEmployees]);
 
-  const leftSticky = "sticky left-0 bg-white z-20";
-  const headerSticky = "sticky top-0 z-30 bg-amber-50";
-  const boqSticky = "sticky top-9 z-30 bg-violet-100";
-  let supplySticky = "sticky top-9 z-30 bg-sky-100";
-  if (employees.siteType === "BOQ") {
-    supplySticky = "";
-  }
+  const categoryOptions = useMemo(() => {
+    const set = new Set(sortedEmployees.map((e) => e.category).filter(Boolean));
+    return ["ALL", ...Array.from(set)];
+  }, [sortedEmployees]);
 
-  const renderEmployeeRows = (emp, rowIndex) => {
+  const stickySl = "sticky left-0 z-[80] bg-white";
+  const stickyEmpNo = "sticky left-[40px] z-[80] bg-white";
+  const stickyName = "sticky left-[136px] z-[80] bg-white";
+  const stickyDesignation = "sticky left-[360px] z-[80] bg-white";
+  const stickyCategory = "sticky left-[456px] z-[80] bg-white";
+
+  const leftSticky = "sticky left-0 bg-white z-[60]";
+  const headerSticky = "sticky top-0 z-[100] bg-amber-50";
+
+  const renderEmployeeRows = (emp, rowIndex, sectionRef) => {
     const empNo = emp.empNo;
     const flaggedSet = flaggedAbsenceCells[empNo] || new Set();
     const stats = computeRowStats(empNo);
@@ -438,28 +466,23 @@ export default function AttendanceTable({
     ).toUpperCase();
 
     return (
-      <React.Fragment key={empNo}>
+      <React.Fragment key={emp.empNo}>
         {/* Row 1: status */}
-        <tr className="border-b">
-          <td
-            className={`${leftSticky} border px-2 py-1 bg-white text-center w-10`}
-          >
+        <tr ref={sectionRef} className="border-b">
+          <td className={`${stickySl} border w-10 text-center bg-white`}>
             {rowIndex + 1}
           </td>
-          <td
-            className={`${leftSticky} border px-2 py-1 bg-white text-center w-24`}
-          >
-            {emp.empNo}
-          </td>
-          <td
-            className={`${leftSticky} border px-2 py-1 bg-white text-left w-56`}
-          >
-            {emp.name}
-          </td>
-          <td className="border px-2 py-1 text-center w-24">
+
+          <td className={`${stickyEmpNo} border w-24 bg-white`}>{emp.empNo}</td>
+
+          <td className={`${stickyName} border w-56 bg-white`}>{emp.name}</td>
+          <td className={`${stickyDesignation} text-center border w-24 bg-white`}>
             {emp.designation}
           </td>
-          <td className="border px-2 py-1 text-center w-24">{emp.category}</td>
+
+          <td className={`${stickyCategory} text-center border w-24 bg-white`}>
+            {emp.category}
+          </td>
           {/* <td className="border px-2 py-1 text-center w-24">
             {manpowerType || "-"}
           </td> */}
@@ -480,7 +503,7 @@ export default function AttendanceTable({
             if (isHoliday && s === "HW") {
               bg = "bg-lime-200";
             }
-            if (isSunday && s === "HW") {
+            if (isSunday && s === "WOW") {
               bg = "bg-lime-200";
             }
 
@@ -494,18 +517,20 @@ export default function AttendanceTable({
                 : "border-slate-300 text-slate-800";
 
             // choose options: if holiday/sunday -> enforce holiday options ONLY
-            const options =
-              isHoliday || isSunday ? HOLIDAY_OPTIONS : STATUS_OPTIONS;
+            let options = STATUS_OPTIONS;
+            if (isSunday) options = SUNDAY_OPTIONS;
+            else if (isHoliday) options = HOLIDAY_OPTIONS;
+
             const storedS = getStatus(empNo, d.iso); // original stored value (may be "")
 
             return (
               <td
                 key={d.iso}
-                className={`border px-1 py-1 w-18 text-center align-middle ${bg}`}
+                className={`border px-1 py-1 min-w-[64px] max-w-[64px] text-center align-middle ${bg}`}
               >
                 {editable ? (
                   <select
-                    value={storedS || (isHoliday || isSunday ? "HH" : "")}
+                    value={storedS || (isHoliday || isSunday ? "WO" : "")}
                     onChange={(e) =>
                       handleStatusChange(
                         empNo,
@@ -545,35 +570,38 @@ export default function AttendanceTable({
             {stats.presentDays || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.leaves || 0}
-          </td>
-          <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.casual || 0}
-          </td>
-          <td className="border px-1 py-1 text-center w-14 text-medium">
             {stats.absents || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.holidayWorkingDays || 0}
+            {stats.leaves || 0}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.weekOffs || 0}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.weekOffWorking || 0}
+          </td>
+          <td className="border px-1 py-1 text-center w-14 text-medium">
+            {stats.cOffDays || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
             {stats.siteHolidays || 0}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
-            {stats.weekOffs || 0}
+            {stats.holidayWorkingDays || 0}
           </td>
         </tr>
 
         {/* Row 2: OT / HW hours */}
         <tr className="border-b bg-sky-50/40">
+          <td className={`${stickySl} border w-10 bg-sky-50/40`} />
+          <td className={`${stickyEmpNo} border w-24 bg-sky-50/40`} />
+          <td className={`${stickyName} border w-56 bg-sky-50/40`} />
           <td
-            className={`${leftSticky} border px-2 py-1 bg-sky-50/40 text-right text-[10px] w-10`}
-          ></td>
-          <td className={`${leftSticky} border px-2 py-1 bg-sky-50/40`} />
-          <td className={`${leftSticky} border px-2 py-1 bg-sky-50/40`} />
-          <td className="border px-2 py-1 text-[10px] text-right" colSpan={2}>
-            OT Hrs:
+            className={`${stickyDesignation} border w-24 bg-sky-50/40 text-right text-[10px]`}
+          >
           </td>
+          <td className={`${stickyCategory} text-right text-[10px] border w-24 bg-sky-50/40`} >OT Hrs:</td>
 
           {days.map((d) => {
             const otRaw = getOTRaw(empNo, d.iso); // undefined if absent
@@ -599,7 +627,7 @@ export default function AttendanceTable({
             return (
               <td
                 key={d.iso}
-                className={`border px-1 py-1 w-18 text-center align-middle ${bg}`}
+                className={`border px-1 py-1 min-w-[64px] max-w-[64px] text-center align-middle ${bg}`}
               >
                 {editable ? (
                   <input
@@ -608,7 +636,7 @@ export default function AttendanceTable({
                     step="0.5"
                     value={valueForInput}
                     onChange={(e) => setOT(empNo, d.iso, e.target.value)}
-                    className={`w-full min-w-[44px] h-7 text-[13px] leading-tight rounded-md border px-1 text-center appearance-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${otPositive ? "ring-2 ring-amber-400" : ""}`}
+                    className={`w-[56px] h-7 text-[13px] leading-tight rounded-md border px-1 text-center appearance-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${otPositive ? "ring-2 ring-amber-400" : ""}`}
                   />
                 ) : (
                   <span className="text-[11px]">
@@ -634,9 +662,12 @@ export default function AttendanceTable({
           })}
 
           {/* OT totals row placeholders – optional extension later */}
-          <td className="border px-1 py-1 text-center text-[13px]">
+          <td className="border px-1 py-1 min-w-[64px] max-w-[64px] text-center align-middle">
             {stats.otHours}
           </td>
+          <td className="border px-1 py-1 text-center text-[11px]" />
+          <td className="border px-1 py-1 text-center text-[11px]" />
+          <td className="border px-1 py-1 text-center text-[11px]" />
           <td className="border px-1 py-1 text-center text-[11px]" />
           <td className="border px-1 py-1 text-center text-[11px]" />
           <td className="border px-1 py-1 text-center text-[11px]" />
@@ -665,31 +696,61 @@ export default function AttendanceTable({
       </div>
 
       {/* table */}
-      <div className="overflow-auto max-h-[70vh]">
-        <table className="min-w-max text-xs border-collapse">
+      {activeSection && (
+        <div className="sticky top-[44px] z-[90]">
+          <div
+            className={`px-4 py-2 font-semibold border-b
+        ${activeSection === "SUPPLY" ? "bg-sky-100" : "bg-violet-100"}
+      `}
+          >
+            {activeSection === "SUPPLY" ? "Supply Manpower" : "BOQ Manpower"}
+          </div>
+        </div>
+      )}
+
+      <div className="attendance-scroll overflow-auto max-h-[70vh]">
+        <table className="min-w-max text-xs border-separate border-spacing-0">
           <thead>
             <tr className={`${headerSticky}`}>
-              <th
-                className={`${leftSticky} border px-2 py-2 w-10 text-center bg-amber-50`}
-              >
-                Sl
-              </th>
-              <th
-                className={`${leftSticky} border px-2 py-2 w-24 text-center bg-amber-50`}
-              >
+              <th className={`${stickySl} ${headerSticky} border w-10`}>Sl No</th>
+              <th className={`${stickyEmpNo} ${headerSticky} border w-24`}>
                 Emp No
               </th>
-              <th
-                className={`${leftSticky} border px-2 py-2 w-56 text-center bg-amber-50`}
-              >
+              <th className={`${stickyName} ${headerSticky} border w-56`}>
                 Name
               </th>
-              <th className="border px-2 py-2 w-24 text-center bg-amber-50">
-                Designation
+              <th
+                className={`${stickyDesignation} ${headerSticky} border w-24`}
+              >
+                <div>Designation</div>
+                <select
+                  value={designationFilter}
+                  onChange={(e) => setDesignationFilter(e.target.value)}
+                  className="mt-1 w-full text-[11px] border rounded"
+                >
+                  {designationOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
               </th>
-              <th className="border px-2 py-2 w-24 text-center bg-amber-50">
-                Category
+
+              <th className={`${stickyCategory} ${headerSticky} border w-24`}>
+                <div>Category</div>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="mt-1 w-full text-[11px] border rounded"
+                >
+                  {categoryOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
               </th>
+
               {/* <th className="border px-2 py-2 w-24 text-center bg-amber-50">
                 Manpower Type
               </th> */}
@@ -712,63 +773,58 @@ export default function AttendanceTable({
                 );
               })}
 
+              <th className="w-[64px] text-center bg-amber-50">OT</th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                OT
+                Total Working Days
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                TD
+                Total Present Days
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                PP
+                Absents
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                LL
+                Leaves
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                CC
+                Week Off
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                AA
+                Week Off Working
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                HW
+                C Off
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                HH
+                Holidays
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
-                WW
+                Holiday Working
               </th>
             </tr>
           </thead>
 
           <tbody>
-            {/* Supply first */}
-            {supplyEmployees.length > 0 && (
-              <tr className={`${supplySticky}`}>
-                <td
-                  colSpan={6 + days.length + 8}
-                  className="bg-sky-100 text-sky-900 font-semibold px-3 py-2 text-sm"
-                >
-                  Supply Manpower
-                </td>
-              </tr>
-            )}
-            {supplyEmployees.map((emp, idx) => renderEmployeeRows(emp, idx))}
+            {/* Supply start marker */}
+            <tr data-section="SUPPLY" className="section-sentinel">
+              <td colSpan={5 + days.length + 10} className="h-0 p-0" />
+            </tr>
 
-            {/* BOQ */}
-            {boqEmployees.length > 0 && (
-              <tr className={`${boqSticky}`}>
-                <td
-                  colSpan={6 + days.length + 8}
-                  className="bg-violet-100 text-violet-900 font-semibold px-3 py-2 text-sm"
-                >
-                  BOQ Manpower
-                </td>
-              </tr>
+            {supplyEmployees.map((emp, idx) =>
+              renderEmployeeRows(emp, idx, idx === 0 ? supplyRef : null)
             )}
+
+            {/* BOQ start marker */}
+            <tr data-section="BOQ" className="section-sentinel">
+              <td colSpan={5 + days.length + 10} className="h-0 p-0" />
+            </tr>
+
             {boqEmployees.map((emp, idx) =>
-              renderEmployeeRows(emp, supplyEmployees.length + idx)
+              renderEmployeeRows(
+                emp,
+                supplyEmployees.length + idx,
+                idx === 0 ? boqRef : null
+              )
             )}
           </tbody>
         </table>

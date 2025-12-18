@@ -213,4 +213,29 @@ input[type="number"].ot-hours {
    button:hover {
     cursor: pointer;
   }
+
+  @keyframes slideFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-section {
+  animation: slideFadeIn 0.25s ease-out;
+}
+
+.sticky {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+}
+
+.attendance-scroll {
+  overflow: auto;
+  position: relative;
+}
+
+
 }

@@ -10,8 +10,10 @@ function Login({
   const companies = [{ id: "RES", name: "RES" }];
   const sitesByCompany = {
     RES: [
+      { id: "--Select Site--", name: "--Select Site--" },
       { id: "GADARWARA", name: "GADARWARA" },
       { id: "DADRI", name: "DADRI" },
+      { id: "KANIHA", name: "KANIHA" }
     ],
   };
 
