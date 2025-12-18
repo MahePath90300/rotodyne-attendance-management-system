@@ -33,7 +33,7 @@ export default function Legend() {
           <div className="flex items-center gap-2">
             <span className="inline-block w-3 h-3 rounded bg-rose-50 border border-rose-500 ring-2 ring-rose-400/70" />
             <span>
-              Cell highlighted – worker absent (&quot;AA&quot;) for greater than
+              Cell highlighted – worker absent (&quot;A&quot;) for greater than
               2 consecutive days
             </span>
           </div>
@@ -51,25 +51,21 @@ export default function Legend() {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Pill className="bg-emerald-100 text-emerald-900 border-emerald-300">
-              PP
+              P
             </Pill>
             <span> - Present – Full day</span>
           </div>
           <div className="flex items-center gap-2">
             <Pill className="bg-emerald-50 text-emerald-800 border-emerald-300">
-              P
+              HP
             </Pill>
             <span> - Present – Half day</span>
           </div>
           <div className="flex items-center gap-2">
             <Pill className="bg-rose-100 text-rose-800 border-rose-400">
-              AA
+              A
             </Pill>
             <span> - Absent – Full day</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Pill className="bg-rose-50 text-rose-700 border-rose-400">A</Pill>
-            <span> - Absent – Half day</span>
           </div>
           <div className="flex items-center gap-2">
             <Pill className="bg-lime-200 text-lime-900 border-lime-400">
@@ -79,27 +75,33 @@ export default function Legend() {
           </div>
           <div className="flex items-center gap-2">
             <Pill className="bg-indigo-100 text-indigo-800 border-indigo-300">
-              LL
+              L
             </Pill>
             <span> - Leave</span>
           </div>
           <div className="flex items-center gap-2">
             <Pill className="bg-indigo-100 text-indigo-800 border-indigo-300">
-              WW
+              WO
             </Pill>
             <span> - Week Off</span>
           </div>
           <div className="flex items-center gap-2">
             <Pill className="bg-indigo-100 text-indigo-800 border-indigo-300">
-              HH
+              WOW
+            </Pill>
+            <span> - Week Off Working</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Pill className="bg-indigo-100 text-indigo-800 border-indigo-300">
+              H
             </Pill>
             <span> - Holiday</span>
           </div>
           <div className="flex items-center gap-2">
             <Pill className="bg-indigo-100 text-indigo-800 border-indigo-300">
-              CC
+              C Off
             </Pill>
-            <span> - Casual Leave</span>
+            <span> - Comp off </span>
           </div>
         </div>
       </div>
