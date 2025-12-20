@@ -55,33 +55,87 @@ export default function AttendanceTable({
   const supplyRef = useRef(null);
   const boqRef = useRef(null);
 
+  const supplySentinelRef = useRef(null);
+const boqSentinelRef = useRef(null);
+
+
   const [activeSection, setActiveSection] = useState(null);
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            if (entry.target === supplyRef.current) {
-              setActiveSection("SUPPLY");
-            }
-            if (entry.target === boqRef.current) {
-              setActiveSection("BOQ");
-            }
-          }
-        });
-      },
-      {
-        root: document.querySelector(".attendance-scroll"),
-        threshold: 0.1,
-      }
+  const sortedEmployees = useMemo(
+    () =>
+      [...employees].sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), "en", {
+          sensitivity: "base",
+        })
+      ),
+    [employees]
+  );
+
+  // Supply first, then BOQ (using manpowerType / siteType from collection)
+  const filteredEmployees = useMemo(() => {
+    return sortedEmployees.filter((emp) => {
+      const designationMatch =
+        designationFilter === "ALL" || emp.designation === designationFilter;
+
+      const categoryMatch =
+        categoryFilter === "ALL" || emp.category === categoryFilter;
+
+      return designationMatch && categoryMatch;
+    });
+  }, [sortedEmployees, designationFilter, categoryFilter]);
+
+  const { supplyEmployees, boqEmployees } = useMemo(() => {
+    const supply = [];
+    const boq = [];
+
+    for (const e of filteredEmployees) {
+      const type = (e.manpowerType || e.siteType || "").toLowerCase();
+      if (type === "boq") boq.push(e);
+      else supply.push(e);
+    }
+    return { supplyEmployees: supply, boqEmployees: boq };
+  }, [filteredEmployees]);
+
+  const designationOptions = useMemo(() => {
+    const set = new Set(
+      sortedEmployees.map((e) => e.designation).filter(Boolean)
     );
+    return ["ALL", ...Array.from(set)];
+  }, [sortedEmployees]);
 
-    if (supplyRef.current) observer.observe(supplyRef.current);
-    if (boqRef.current) observer.observe(boqRef.current);
+  const categoryOptions = useMemo(() => {
+    const set = new Set(sortedEmployees.map((e) => e.category).filter(Boolean));
+    return ["ALL", ...Array.from(set)];
+  }, [sortedEmployees]);
 
-    return () => observer.disconnect();
-  }, []);
+
+ useEffect(() => {
+  if (!supplySentinelRef.current || !boqSentinelRef.current) return;
+
+  const rootEl = document.querySelector(".attendance-scroll");
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+
+        const section = entry.target.dataset.section;
+        if (section === "SUPPLY") setActiveSection("SUPPLY");
+        if (section === "BOQ") setActiveSection("BOQ");
+      });
+    },
+    {
+      root: rootEl,
+      threshold: 0.15,
+    }
+  );
+
+  observer.observe(supplySentinelRef.current);
+  observer.observe(boqSentinelRef.current);
+
+  return () => observer.disconnect();
+}, [filteredEmployees]); // ✅ re-run after filter
+
 
   const totalWorkingDaysInWindow = useMemo(() => {
     return days.reduce((acc, d) => {
@@ -111,6 +165,7 @@ export default function AttendanceTable({
   const SUNDAY_OPTIONS = [
     { val: "WO", label: "WO" },
     { val: "WOW", label: "WOW" },
+    { val: "P", label: "P" },
   ];
 
   const HOLIDAY_OPTIONS = [
@@ -245,6 +300,7 @@ export default function AttendanceTable({
       if (isSunday) {
         if (s === "WO") weekOffs += 1;
         if (s === "WOW") weekOffWorking += 1;
+        if (s === "P") presentDays += 1;
         continue;
       }
 
@@ -259,8 +315,8 @@ export default function AttendanceTable({
         case "P":
           presentDays += 1;
           break;
-        case "HD":
-          presentDays += 0.5;
+        case "HP":
+          presentDays += 0.5, absents+=0.5
           break;
         case "A":
           absents += 1;
@@ -397,53 +453,6 @@ export default function AttendanceTable({
   }
 
   // === EMPLOYEE ORDER: sort by name ascending ===
-  const sortedEmployees = useMemo(
-    () =>
-      [...employees].sort((a, b) =>
-        String(a.name || "").localeCompare(String(b.name || ""), "en", {
-          sensitivity: "base",
-        })
-      ),
-    [employees]
-  );
-
-  // Supply first, then BOQ (using manpowerType / siteType from collection)
-  const filteredEmployees = useMemo(() => {
-    return sortedEmployees.filter((emp) => {
-      const designationMatch =
-        designationFilter === "ALL" || emp.designation === designationFilter;
-
-      const categoryMatch =
-        categoryFilter === "ALL" || emp.category === categoryFilter;
-
-      return designationMatch && categoryMatch;
-    });
-  }, [sortedEmployees, designationFilter, categoryFilter]);
-
-  const { supplyEmployees, boqEmployees } = useMemo(() => {
-    const supply = [];
-    const boq = [];
-
-    for (const e of filteredEmployees) {
-      const type = (e.manpowerType || e.siteType || "").toLowerCase();
-      if (type === "boq") boq.push(e);
-      else supply.push(e);
-    }
-    return { supplyEmployees: supply, boqEmployees: boq };
-  }, [filteredEmployees]);
-
-  const designationOptions = useMemo(() => {
-    const set = new Set(
-      sortedEmployees.map((e) => e.designation).filter(Boolean)
-    );
-    return ["ALL", ...Array.from(set)];
-  }, [sortedEmployees]);
-
-  const categoryOptions = useMemo(() => {
-    const set = new Set(sortedEmployees.map((e) => e.category).filter(Boolean));
-    return ["ALL", ...Array.from(set)];
-  }, [sortedEmployees]);
-
   const stickySl = "sticky left-0 z-[80] bg-white";
   const stickyEmpNo = "sticky left-[40px] z-[80] bg-white";
   const stickyName = "sticky left-[136px] z-[80] bg-white";
@@ -601,7 +610,7 @@ export default function AttendanceTable({
             className={`${stickyDesignation} border w-24 bg-sky-50/40 text-right text-[10px]`}
           >
           </td>
-          <td className={`${stickyCategory} text-right text-[10px] border w-24 bg-sky-50/40`} >OT Hrs:</td>
+          <td className={`${stickyCategory} text-right font-semibold text-[10px] border w-24 bg-sky-50/40`} >OT Hrs:</td>
 
           {days.map((d) => {
             const otRaw = getOTRaw(empNo, d.iso); // undefined if absent
@@ -806,24 +815,23 @@ export default function AttendanceTable({
 
           <tbody>
             {/* Supply start marker */}
-            <tr data-section="SUPPLY" className="section-sentinel">
+            <tr  ref={supplySentinelRef} data-section="SUPPLY" className="section-sentinel">
               <td colSpan={5 + days.length + 10} className="h-0 p-0" />
             </tr>
 
             {supplyEmployees.map((emp, idx) =>
-              renderEmployeeRows(emp, idx, idx === 0 ? supplyRef : null)
+              renderEmployeeRows(emp, idx)
             )}
 
             {/* BOQ start marker */}
-            <tr data-section="BOQ" className="section-sentinel">
+            <tr ref={boqSentinelRef} data-section="BOQ" className="section-sentinel">
               <td colSpan={5 + days.length + 10} className="h-0 p-0" />
             </tr>
 
             {boqEmployees.map((emp, idx) =>
               renderEmployeeRows(
                 emp,
-                supplyEmployees.length + idx,
-                idx === 0 ? boqRef : null
+                supplyEmployees.length + idx
               )
             )}
           </tbody>
