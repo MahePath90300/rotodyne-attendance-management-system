@@ -56,8 +56,7 @@ export default function AttendanceTable({
   const boqRef = useRef(null);
 
   const supplySentinelRef = useRef(null);
-const boqSentinelRef = useRef(null);
-
+  const boqSentinelRef = useRef(null);
 
   const [activeSection, setActiveSection] = useState(null);
 
@@ -108,34 +107,32 @@ const boqSentinelRef = useRef(null);
     return ["ALL", ...Array.from(set)];
   }, [sortedEmployees]);
 
+  useEffect(() => {
+    if (!supplySentinelRef.current || !boqSentinelRef.current) return;
 
- useEffect(() => {
-  if (!supplySentinelRef.current || !boqSentinelRef.current) return;
+    const rootEl = document.querySelector(".attendance-scroll");
 
-  const rootEl = document.querySelector(".attendance-scroll");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
 
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
+          const section = entry.target.dataset.section;
+          if (section === "SUPPLY") setActiveSection("SUPPLY");
+          if (section === "BOQ") setActiveSection("BOQ");
+        });
+      },
+      {
+        root: rootEl,
+        threshold: 0.15,
+      }
+    );
 
-        const section = entry.target.dataset.section;
-        if (section === "SUPPLY") setActiveSection("SUPPLY");
-        if (section === "BOQ") setActiveSection("BOQ");
-      });
-    },
-    {
-      root: rootEl,
-      threshold: 0.15,
-    }
-  );
+    observer.observe(supplySentinelRef.current);
+    observer.observe(boqSentinelRef.current);
 
-  observer.observe(supplySentinelRef.current);
-  observer.observe(boqSentinelRef.current);
-
-  return () => observer.disconnect();
-}, [filteredEmployees]); // ✅ re-run after filter
-
+    return () => observer.disconnect();
+  }, [filteredEmployees]); // ✅ re-run after filter
 
   const totalWorkingDaysInWindow = useMemo(() => {
     return days.reduce((acc, d) => {
@@ -293,8 +290,6 @@ const boqSentinelRef = useRef(null);
         Number(explicitOt) > 0
       ) {
         otHours += Number(explicitOt);
-      } else if (s === "HW" && (isHoliday || isSunday)) {
-        otHours += 8;
       }
 
       if (isSunday) {
@@ -305,7 +300,7 @@ const boqSentinelRef = useRef(null);
       }
 
       if (isHoliday) {
-        if (s === "H") siteHolidays += 1;
+        if (s === "H" || s === "HW") siteHolidays += 1;
         if (s === "HW") holidayWorkingDays += 1;
         continue;
       }
@@ -316,7 +311,7 @@ const boqSentinelRef = useRef(null);
           presentDays += 1;
           break;
         case "HP":
-          presentDays += 0.5, absents+=0.5
+          ((presentDays += 0.5), (absents += 0.5));
           break;
         case "A":
           absents += 1;
@@ -418,11 +413,11 @@ const boqSentinelRef = useRef(null);
         totalPresentDays: stats.presentDays,
         totalAbsents: stats.absents,
         totalLeaves: stats.leaves,
-        totalWeekOffs: Number(stats.weekOffs)+ Number(stats.weekOffWorking),
-        totalWeekOffWorking: stats.weekOffWorking || 0,
+        totalWeekOffs: Number(stats.weekOffs) + Number(stats.weekOffWorking),
         totalDaysWorked: stats.totalDaysWorked,
         totalCalendarDays: days.length,
         totalHolidays: stats.siteHolidays,
+        totalHoilidayWorkingDays: stats.holidayWorkingDays,
       };
     });
 
@@ -485,7 +480,9 @@ const boqSentinelRef = useRef(null);
           <td className={`${stickyEmpNo} border w-24 bg-white`}>{emp.empNo}</td>
 
           <td className={`${stickyName} border w-56 bg-white`}>{emp.name}</td>
-          <td className={`${stickyDesignation} text-center border w-24 bg-white`}>
+          <td
+            className={`${stickyDesignation} text-center border w-24 bg-white`}
+          >
             {emp.designation}
           </td>
 
@@ -608,9 +605,12 @@ const boqSentinelRef = useRef(null);
           <td className={`${stickyName} border w-56 bg-sky-50/40`} />
           <td
             className={`${stickyDesignation} border w-24 bg-sky-50/40 text-right text-[10px]`}
+          ></td>
+          <td
+            className={`${stickyCategory} text-right font-semibold text-[10px] border w-24 bg-sky-50/40`}
           >
+            OT Hrs:
           </td>
-          <td className={`${stickyCategory} text-right font-semibold text-[10px] border w-24 bg-sky-50/40`} >OT Hrs:</td>
 
           {days.map((d) => {
             const otRaw = getOTRaw(empNo, d.iso); // undefined if absent
@@ -652,17 +652,7 @@ const boqSentinelRef = useRef(null);
                     {
                       // viewer: show explicit value if present (including 0).
                       // if no explicit value and status is HW on holiday/sunday, show 8
-                      typeof otRaw !== "undefined"
-                        ? otRaw
-                        : getEffectiveStatus(
-                              empNo,
-                              d.iso,
-                              isHoliday,
-                              isSunday
-                            ) === "HW" &&
-                            (isHoliday || isSunday)
-                          ? 8
-                          : ""
+                      typeof otRaw !== "undefined" ? otRaw : ""
                     }
                   </span>
                 )}
@@ -721,7 +711,9 @@ const boqSentinelRef = useRef(null);
         <table className="min-w-max text-xs border-separate border-spacing-0">
           <thead>
             <tr className={`${headerSticky}`}>
-              <th className={`${stickySl} ${headerSticky} border w-10`}>Sl No</th>
+              <th className={`${stickySl} ${headerSticky} border w-10`}>
+                Sl No
+              </th>
               <th className={`${stickyEmpNo} ${headerSticky} border w-24`}>
                 Emp No
               </th>
@@ -815,24 +807,27 @@ const boqSentinelRef = useRef(null);
 
           <tbody>
             {/* Supply start marker */}
-            <tr  ref={supplySentinelRef} data-section="SUPPLY" className="section-sentinel">
+            <tr
+              ref={supplySentinelRef}
+              data-section="SUPPLY"
+              className="section-sentinel"
+            >
               <td colSpan={5 + days.length + 10} className="h-0 p-0" />
             </tr>
 
-            {supplyEmployees.map((emp, idx) =>
-              renderEmployeeRows(emp, idx)
-            )}
+            {supplyEmployees.map((emp, idx) => renderEmployeeRows(emp, idx))}
 
             {/* BOQ start marker */}
-            <tr ref={boqSentinelRef} data-section="BOQ" className="section-sentinel">
+            <tr
+              ref={boqSentinelRef}
+              data-section="BOQ"
+              className="section-sentinel"
+            >
               <td colSpan={5 + days.length + 10} className="h-0 p-0" />
             </tr>
 
             {boqEmployees.map((emp, idx) =>
-              renderEmployeeRows(
-                emp,
-                supplyEmployees.length + idx
-              )
+              renderEmployeeRows(emp, supplyEmployees.length + idx)
             )}
           </tbody>
         </table>
