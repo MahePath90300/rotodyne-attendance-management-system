@@ -5,26 +5,7 @@ import { useAuth } from "../context/AuthenticationContext.jsx";
 import LogoutButton from "./LogoutButton.jsx";
 import Legend from "./Legend";
 import * as notify from "../utils/notify";
-
-function buildMonthDays(year, month) {
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear = month === 1 ? year - 1 : year;
-
-  const start = new Date(prevYear, prevMonth - 1, 26);
-  const end = new Date(year, month - 1, 25);
-
-  const days = [];
-  for (let d = start; d <= end; d = addDays(d, 1)) {
-    const iso = format(d, "yyyy-MM-dd"); // local-safe, no timezone shift
-    days.push({
-      iso,
-      dayNum: d.getDate(),
-      dow: d.toLocaleDateString("en-IN", { weekday: "short" }),
-      isSunday: d.getDay() === 0,
-    });
-  }
-  return days;
-}
+import { resolveAttendanceCycle } from "../config/attendanceCycle";
 
 const todayISO = () => format(new Date(), "yyyy-MM-dd");
 
@@ -41,7 +22,21 @@ export default function AttendanceTable({
   allowViewerEdit = false,
   onSaved,
 }) {
-  const days = useMemo(() => buildMonthDays(year, month), [year, month]);
+  const cycle = resolveAttendanceCycle(siteId);
+  const days = useMemo(() => {
+    const { start, end } = cycle.buildRange(year, month);
+    const arr = [];
+    for (let d = start; d <= end; d = addDays(d, 1)) {
+      arr.push({
+        iso: format(d, "yyyy-MM-dd"),
+        dayNum: d.getDate(),
+        dow: d.toLocaleDateString("en-IN", { weekday: "short" }),
+        isSunday: d.getDay() === 0,
+      });
+    }
+    return arr;
+  }, [year, month, siteId]);
+
   const { user } = useAuth();
   const role = (user?.role || "VIEWER").toUpperCase();
 
@@ -687,8 +682,7 @@ export default function AttendanceTable({
         <div>
           <div className="text-sm font-semibold">{siteTitle}</div>
           <div className="text-xs text-slate-500">
-            Attendance period: 26/{month === 1 ? 12 : month - 1}/{year} – 25/
-            {month}/{year}
+            Attendance period: {cycle.label(year, month)}
           </div>
         </div>
         <LogoutButton />
