@@ -13,7 +13,9 @@ function Login({
       { id: "--Select Site--", name: "--Select Site--" },
       { id: "GADARWARA", name: "GADARWARA" },
       { id: "DADRI", name: "DADRI" },
-      { id: "KANIHA", name: "KANIHA" }
+      { id: "KANIHA", name: "KANIHA" },
+      { id: "NALCO DAMANJODI(0405)", name: "NALCO DAMANJODI(0405)" },
+      { id: "IOCLGJBS", name: "IOCLGJBS" },
     ],
   };
 

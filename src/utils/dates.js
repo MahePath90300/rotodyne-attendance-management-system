@@ -5,15 +5,24 @@ import { format, addDays, parseISO } from "date-fns";
  * month: 1..12 (eg. 11 for Nov)
  * returns array of ISO 'yyyy-MM-dd' strings from 26(prev month) to 25(this month)
  */
-export function buildMonthWindow(year, month) {
-  const m = month;
-  const prevMonth = m === 1 ? 12 : m - 1;
-  const prevYear = m === 1 ? year - 1 : year;
-  const start = new Date(prevYear, prevMonth - 1, 26);
-  const end = new Date(year, m - 1, 25);
+export function buildMonthWindow(year, month, { mode = "NTPC" } = {}) {
+  let startDate, endDate;
+
+  if (mode === "CALENDAR") {
+    startDate = new Date(year, month - 1, 1);
+    endDate = new Date(year, month, 0); // last day
+  } else {
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    startDate = new Date(prevYear, prevMonth - 1, 26);
+    endDate = new Date(year, month - 1, 25);
+  }
 
   const days = [];
-  for (let d = start; d <= end; d = addDays(d, 1)) days.push(format(d, "yyyy-MM-dd"));
+  for (let d = startDate; d <= endDate; d.setDate(d.getDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10));
+  }
+
   return days;
 }
 
