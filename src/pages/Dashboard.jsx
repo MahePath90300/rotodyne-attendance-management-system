@@ -7,7 +7,7 @@ import { useAuth } from "../context/AuthenticationContext.jsx";
 import api from "../api/axios";
 import { buildMonthWindow } from "../utils/dates";
 import mockData from "../mock/attendance.mock";
-import Spinner from "../components/spinner.jsx";
+import Spinner from "../components/Spinner.jsx";
 
 // Accept both "YYYY-MM-DD" and "25-Dec-25" etc.
 // Sites with calendar-month attendance (1 → end of month)
