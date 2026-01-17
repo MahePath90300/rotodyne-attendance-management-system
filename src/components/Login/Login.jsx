@@ -88,7 +88,7 @@ function Login({
         {/* Left Panel */}
         <aside className="bg-gradient-to-br from-[#1e5bb8] via-[#164a94] to-[#183f73] p-8 lg:p-12 flex flex-col justify-center items-center text-white relative overflow-hidden">
           <img
-            src="src/assets/logo-rotodyne.png"
+            src="/assets/logo-rotodyne.png"
             alt="Logo"
             className="w-24 h-24 mb-4"
           />
