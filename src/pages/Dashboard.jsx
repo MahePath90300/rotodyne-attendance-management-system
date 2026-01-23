@@ -1,4 +1,3 @@
-// src/pages/Dashboard.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
@@ -8,14 +7,6 @@ import api from "../api/axios";
 import { buildMonthWindow } from "../utils/dates";
 import mockData from "../mock/attendance.mock";
 import Spinner from "../components/Spinner.jsx";
-
-// Accept both "YYYY-MM-DD" and "25-Dec-25" etc.
-// Sites with calendar-month attendance (1 → end of month)
-const CALENDAR_MONTH_SITES = new Set(["NALCO DAMANJODI(0405)", "IOCLGJBS"]);
-
-function isCalendarMonthSite(siteId) {
-  return CALENDAR_MONTH_SITES.has(String(siteId).toUpperCase());
-}
 
 function normalizeHolidayISO(dateStr) {
   if (!dateStr) return null;
@@ -64,13 +55,7 @@ export default function Dashboard() {
       try {
         const res = await api.get(url);
         const body = res.data || {};
-
-        const isCalendar = isCalendarMonthSite(effectiveSiteId);
-        const days =
-          body.days ||
-          (isCalendar
-            ? buildMonthWindow(year, month, { mode: "CALENDAR" })
-            : buildMonthWindow(year, month));
+       const days =  body.days || buildMonthWindow(year, month);
 
         const holidayIsoList = (body.holidays || [])
           .map(normalizeHolidayISO)
