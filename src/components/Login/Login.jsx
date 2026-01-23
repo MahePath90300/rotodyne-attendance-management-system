@@ -1,4 +1,3 @@
-// src/components/Login.jsx
 import React, { useEffect, useMemo, useState } from "react";
 
 function Login({
@@ -16,6 +15,10 @@ function Login({
       { id: "KANIHA", name: "KANIHA" },
       { id: "NALCO DAMANJODI(0405)", name: "NALCO DAMANJODI(0405)" },
       { id: "IOCLGJBS", name: "IOCLGJBS" },
+      { id: "DAMANOH9252", name: "DAMANOH9252" },
+      { id: "HALDIA9426", name: "HALDIA9426" },
+      { id: "IOCPANIPAT", name: "IOCPANIPAT" },
+      { id: "NABINAGAR", name: "NABINAGAR" },
     ],
   };
 
@@ -32,7 +35,7 @@ function Login({
 
   const currentSites = useMemo(
     () => sitesByCompany?.[company] ?? [],
-    [company, sitesByCompany]
+    [company, sitesByCompany],
   );
 
   useEffect(() => {
