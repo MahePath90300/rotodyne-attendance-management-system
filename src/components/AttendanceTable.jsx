@@ -21,6 +21,7 @@ export default function AttendanceTable({
   month,
   allowViewerEdit = false,
   onSaved,
+  summaryMap = {},
 }) {
   const cycle = resolveAttendanceCycle(siteId);
   const days = useMemo(() => {
@@ -53,6 +54,8 @@ export default function AttendanceTable({
   const supplySentinelRef = useRef(null);
   const boqSentinelRef = useRef(null);
 
+  const [siteDayEdits, setSiteDayEdits] = useState({});
+  const [activeOTCell, setActiveOTCell] = useState(null);
   const [activeSection, setActiveSection] = useState(null);
 
   const sortedEmployees = useMemo(
@@ -60,9 +63,9 @@ export default function AttendanceTable({
       [...employees].sort((a, b) =>
         String(a.name || "").localeCompare(String(b.name || ""), "en", {
           sensitivity: "base",
-        })
+        }),
       ),
-    [employees]
+    [employees],
   );
 
   // Supply first, then BOQ (using manpowerType / siteType from collection)
@@ -92,7 +95,7 @@ export default function AttendanceTable({
 
   const designationOptions = useMemo(() => {
     const set = new Set(
-      sortedEmployees.map((e) => e.designation).filter(Boolean)
+      sortedEmployees.map((e) => e.designation).filter(Boolean),
     );
     return ["ALL", ...Array.from(set)];
   }, [sortedEmployees]);
@@ -120,7 +123,7 @@ export default function AttendanceTable({
       {
         root: rootEl,
         threshold: 0.15,
-      }
+      },
     );
 
     observer.observe(supplySentinelRef.current);
@@ -143,10 +146,8 @@ export default function AttendanceTable({
   // Keep codes short in the cells; descriptions are in Legend.
   const STATUS_OPTIONS = [
     { val: "-", label: "-" },
-    // { val: "PP", label: "PP" }, // full-day present
-    { val: "P", label: "P" }, // half-day present
-    // { val: "AA", label: "AA" }, // full-day absent
-    { val: "A", label: "A" }, // half-day absent
+    { val: "P", label: "P" },
+    { val: "A", label: "A" },
     { val: "L", label: "L" }, // leave
     { val: "C Off", label: "C Off" }, // comp off leave
     { val: "WO", label: "WO" }, // week-off
@@ -158,11 +159,14 @@ export default function AttendanceTable({
     { val: "WO", label: "WO" },
     { val: "WOW", label: "WOW" },
     { val: "P", label: "P" },
+    { val: "A", label: "A" },
   ];
 
   const HOLIDAY_OPTIONS = [
     { val: "H", label: "H" },
     { val: "HW", label: "HW" },
+    { val: "P", label: "P" },
+    { val: "A", label: "A" },
   ];
 
   const canEditStatus = (dateIso) => {
@@ -212,6 +216,9 @@ export default function AttendanceTable({
     return false;
   }
 
+  const getSiteDays = (empNo) =>
+    siteDayEdits[empNo] ?? summaryMap?.[empNo]?.siteDays ?? 0;
+
   function getEffectiveStatus(empNo, dateIso, isHoliday, isSunday) {
     const stored =
       statusEdits[empNo]?.[dateIso] ?? attendanceMap[empNo]?.[dateIso] ?? "";
@@ -248,6 +255,13 @@ export default function AttendanceTable({
 
   function handleStatusChange(empNo, dateIso, val) {
     setStatus(empNo, dateIso, val);
+  }
+
+  function setSiteDays(empNo, value) {
+    setSiteDayEdits((prev) => ({
+      ...prev,
+      [empNo]: Number(value) || 0,
+    }));
   }
 
   // === STATS PER EMPLOYEE ===
@@ -297,6 +311,8 @@ export default function AttendanceTable({
       if (isHoliday) {
         if (s === "H" || s === "HW") siteHolidays += 1;
         if (s === "HW") holidayWorkingDays += 1;
+        if (s === "A") absents += 1;
+        if (s === "P") presentDays += 1;
         continue;
       }
 
@@ -413,6 +429,8 @@ export default function AttendanceTable({
         totalCalendarDays: days.length,
         totalHolidays: stats.siteHolidays,
         totalHoilidayWorkingDays: stats.holidayWorkingDays,
+        totalCOffDays: stats.cOffDays,
+        siteDays: siteDayEdits[emp.empNo] ?? 0,
       };
     });
 
@@ -431,6 +449,7 @@ export default function AttendanceTable({
       notify.success?.("Saved");
       setStatusEdits({});
       setOtEdits({});
+      setSiteDayEdits({});
       if (typeof onSaved === "function") {
         onSaved(); // trigger Dashboard re-fetch
       }
@@ -501,10 +520,10 @@ export default function AttendanceTable({
             if (isHoliday) bg = "bg-rose-100";
 
             // Holiday work cell gets special bright highlight
-            if (isHoliday && s === "HW") {
+            if (isHoliday && (s === "HW" || s === "P")) {
               bg = "bg-lime-200";
             }
-            if (isSunday && s === "WOW") {
+            if (isSunday && (s === "WOW" || s === "P")) {
               bg = "bg-lime-200";
             }
 
@@ -538,7 +557,7 @@ export default function AttendanceTable({
                         d.iso,
                         e.target.value,
                         isHoliday,
-                        isSunday
+                        isSunday,
                       )
                     }
                     className={`w-full min-w-[48px] h-7 text-[12px] leading-tight rounded-md border px-1 text-center bg-white ${baseTextClass} ${flaggedRing}`}
@@ -569,6 +588,20 @@ export default function AttendanceTable({
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
             {stats.presentDays || 0}
+          </td>
+          <td className="border px-1 py-1 text-center w-14">
+            {role === "ADMIN" || role === "SITE_ENGINEER" ? (
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={getSiteDays(emp.empNo)}
+                onChange={(e) => setSiteDays(emp.empNo, e.target.value)}
+                className="w-[50px] h-7 text-xs border rounded text-center"
+              />
+            ) : (
+              getSiteDays(emp.empNo)
+            )}
           </td>
           <td className="border px-1 py-1 text-center w-14 text-medium">
             {stats.absents || 0}
@@ -776,6 +809,9 @@ export default function AttendanceTable({
                 Total Present Days
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
+                Site Days
+              </th>
+              <th className="border px-2 py-2 w-14 text-center bg-amber-50">
                 Absents
               </th>
               <th className="border px-2 py-2 w-14 text-center bg-amber-50">
@@ -806,7 +842,7 @@ export default function AttendanceTable({
               data-section="SUPPLY"
               className="section-sentinel"
             >
-              <td colSpan={5 + days.length + 10} className="h-0 p-0" />
+              <td colSpan={5 + days.length + 11} className="h-0 p-0" />
             </tr>
 
             {supplyEmployees.map((emp, idx) => renderEmployeeRows(emp, idx))}
@@ -817,11 +853,11 @@ export default function AttendanceTable({
               data-section="BOQ"
               className="section-sentinel"
             >
-              <td colSpan={5 + days.length + 10} className="h-0 p-0" />
+              <td colSpan={5 + days.length + 11} className="h-0 p-0" />
             </tr>
 
             {boqEmployees.map((emp, idx) =>
-              renderEmployeeRows(emp, supplyEmployees.length + idx)
+              renderEmployeeRows(emp, supplyEmployees.length + idx),
             )}
           </tbody>
         </table>
@@ -834,12 +870,13 @@ export default function AttendanceTable({
             Edits:{" "}
             {Object.values(statusEdits).reduce(
               (sum, emp) => sum + Object.keys(emp).length,
-              0
+              0,
             ) +
               Object.values(otEdits).reduce(
                 (sum, emp) => sum + Object.keys(emp).length,
-                0
-              )}
+                0,
+              ) +
+              Object.keys(siteDayEdits).length}
           </span>
           <div className="flex gap-2">
             <button
