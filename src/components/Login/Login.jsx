@@ -19,6 +19,13 @@ function Login({
       { id: "HALDIA9426", name: "HALDIA9426" },
       { id: "IOCPANIPAT", name: "IOCPANIPAT" },
       { id: "NABINAGAR", name: "NABINAGAR" },
+      { id: "WANAKBORI", name: "WANAKBORI" },
+      { id: "IEPL9308", name: "IEPL9308" },
+      { id: "IEPLOPER", name: "IEPLOPER" },
+      { id: "JPLSBOP 9541", name: "JPLSBOP 9541" },
+      { id: "JPLSTG9540", name: "JPLSTG9540" },
+      { id: "MECONNMDC", name: "MECONNMDC" },
+      { id: "RCFTHAL9253", name: "RCFTHAL9253" },
     ],
   };
 

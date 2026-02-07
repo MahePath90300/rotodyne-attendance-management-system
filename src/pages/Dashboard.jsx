@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams } from "react-router-dom";
 
 import AttendanceTable from "../components/AttendanceTable";
@@ -7,6 +7,7 @@ import api from "../api/axios";
 import { buildMonthWindow } from "../utils/dates";
 import mockData from "../mock/attendance.mock";
 import Spinner from "../components/Spinner.jsx";
+import { resolveInitialAttendanceMonth } from "../utils/attendanceMonth.js";
 
 function normalizeHolidayISO(dateStr) {
   if (!dateStr) return null;
@@ -33,9 +34,11 @@ export default function Dashboard() {
   const effectiveSiteId =
     role === "SITE_ENGINEER" ? user.site : normalizedSiteId;
 
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const { year: initialYear, month: initialMonth } =
+    resolveInitialAttendanceMonth(effectiveSiteId);
+
+  const [year, setYear] = useState(initialYear);
+  const [month, setMonth] = useState(initialMonth);
 
   const [siteData, setSiteData] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -55,7 +58,7 @@ export default function Dashboard() {
       try {
         const res = await api.get(url);
         const body = res.data || {};
-       const days =  body.days || buildMonthWindow(year, month);
+        const days = body.days || buildMonthWindow(year, month);
 
         const holidayIsoList = (body.holidays || [])
           .map(normalizeHolidayISO)
@@ -67,6 +70,7 @@ export default function Dashboard() {
           employees: body.employees || [],
           attendanceMap: body.attendanceMap || {},
           otMap: body.otMap || {},
+          summaryMap: body.summaryMap || {},
           holidays: new Set(holidayIsoList),
           days,
         });
@@ -83,7 +87,7 @@ export default function Dashboard() {
         }
         if (status === 403) {
           setError(
-            "Access denied (403). You don't have permission to view this site."
+            "Access denied (403). You don't have permission to view this site.",
           );
           setLoading(false);
           return;
@@ -140,7 +144,7 @@ export default function Dashboard() {
     try {
       const res = await api.get(
         `/api/v1/wage/site/${effectiveSiteId}/export?year=${year}&month=${month}`,
-        { responseType: "blob" }
+        { responseType: "blob" },
       );
 
       const blob = new Blob([res.data], {
@@ -155,6 +159,47 @@ export default function Dashboard() {
     } catch (err) {
       console.error(err);
     }
+  }
+
+  async function handleESIExport() {
+    try {
+      const res = await api.get(
+        `/api/v1/wage/site/${effectiveSiteId}/esi-export?year=${year}&month=${month}`,
+        { responseType: "blob" },
+      );
+
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ESI_${effectiveSiteId}_${year}_${month}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert("ESI export failed");
+    }
+  }
+
+  async function handlePFExport() {
+    const res = await api.get(
+      `/api/v1/wage/site/${effectiveSiteId}/pf-ecr?year=${year}&month=${month}`,
+      { responseType: "blob" },
+    );
+
+    const blob = new Blob([res.data], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `PF_ECR_${effectiveSiteId}_${year}_${month}.xlsx`;
+    a.click();
+    window.URL.revokeObjectURL(url);
   }
 
   // ---------- render ----------
@@ -198,6 +243,23 @@ export default function Dashboard() {
               Export wage sheet (Excel)
             </button>
           )}
+
+          {role === "ADMIN" && (
+            <button
+              onClick={handleESIExport}
+              className="ml-2 px-3 py-1 bg-blue-600 text-white rounded text-md"
+            >
+              Export ESI
+            </button>
+          )}
+          {role === "ADMIN" && (
+            <button
+              onClick={handlePFExport}
+              className="ml-2 px-3 py-1 bg-[#0A639D] text-white rounded text-md"
+            >
+              Export EPF ECR
+            </button>
+          )}
         </div>
       )}
 
@@ -207,6 +269,7 @@ export default function Dashboard() {
         siteType={siteData.siteType}
         employees={siteData.employees}
         attendanceMap={siteData.attendanceMap}
+        summaryMap={siteData.summaryMap}
         otMap={siteData.otMap}
         holidays={siteData.holidays}
         year={year}
