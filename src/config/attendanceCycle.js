@@ -1,5 +1,3 @@
-// shared/attendanceCycle.js
-
 export const ATTENDANCE_CYCLES = {
   // =====================
   // 26 → 25 (default)
@@ -65,7 +63,6 @@ export const ATTENDANCE_CYCLES = {
   },
 };
 
-
 /**
  * Site → Cycle mapping
  */
@@ -74,6 +71,7 @@ export const SITE_ATTENDANCE_CYCLE = {
   GADARWARA: "DEFAULT_26_25",
   KANIHA: "DEFAULT_26_25",
   DADRI: "DEFAULT_26_25",
+  LARA: "DEFAULT_26_25",
 
   // New sites
   "NALCO DAMANJODI(0405)": "CALENDAR_1_EOM",
@@ -87,6 +85,8 @@ export const SITE_ATTENDANCE_CYCLE = {
   IEPLOPER: "CALENDAR_1_EOM",
   MECONNMDC: "CALENDAR_1_EOM",
   RCFTHAL9253: "CALENDAR_1_EOM",
+  SERVICES: "CALENDAR_1_EOM",
+  IOCLGJCGP: "CALENDAR_1_EOM",
 
   "JPLSBOP 9541": "JPL_21_20",
   JPLSTG9540: "JPL_21_20",

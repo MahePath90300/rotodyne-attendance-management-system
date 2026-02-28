@@ -37,7 +37,7 @@ export default function Loginpage() {
         targetSite = dbSite;
       } else {
         // admin / viewer – use dropdown site first, then DB, finally fallback
-        targetSite = requestedSite || dbSite || "GADARWARA";
+        targetSite = requestedSite || dbSite;
       }
 
       if (!targetSite) {
@@ -45,7 +45,7 @@ export default function Loginpage() {
       }
 
       // 3) Navigate
-      navigate(`/dashboard/${encodeURIComponent(targetSite)}`, {
+      navigate(`/attendance/${targetSite}`, {
         replace: true,
       });
     } catch (err) {

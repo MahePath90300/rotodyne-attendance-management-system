@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Sites } from "../../utils/sites";
 
 function Login({
   onSubmit, // required: async function(formData) -> login logic done by parent
@@ -8,25 +9,7 @@ function Login({
 }) {
   const companies = [{ id: "RES", name: "RES" }];
   const sitesByCompany = {
-    RES: [
-      { id: "--Select Site--", name: "--Select Site--" },
-      { id: "GADARWARA", name: "GADARWARA" },
-      { id: "DADRI", name: "DADRI" },
-      { id: "KANIHA", name: "KANIHA" },
-      { id: "NALCO DAMANJODI(0405)", name: "NALCO DAMANJODI(0405)" },
-      { id: "IOCLGJBS", name: "IOCLGJBS" },
-      { id: "DAMANOH9252", name: "DAMANOH9252" },
-      { id: "HALDIA9426", name: "HALDIA9426" },
-      { id: "IOCPANIPAT", name: "IOCPANIPAT" },
-      { id: "NABINAGAR", name: "NABINAGAR" },
-      { id: "WANAKBORI", name: "WANAKBORI" },
-      { id: "IEPL9308", name: "IEPL9308" },
-      { id: "IEPLOPER", name: "IEPLOPER" },
-      { id: "JPLSBOP 9541", name: "JPLSBOP 9541" },
-      { id: "JPLSTG9540", name: "JPLSTG9540" },
-      { id: "MECONNMDC", name: "MECONNMDC" },
-      { id: "RCFTHAL9253", name: "RCFTHAL9253" },
-    ],
+    RES: Sites,
   };
 
   const [email, setEmail] = useState("");

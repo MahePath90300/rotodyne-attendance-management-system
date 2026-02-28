@@ -7,6 +7,7 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [selectedSite, setSelectedSite] = useState(null);
   const [loading, setLoading] = useState(true); // true until /me finishes
 
   async function login(credentials) {
@@ -23,6 +24,7 @@ export function AuthProvider({ children }) {
       const res = await api.post("/api/v1/auth/login", payload);
       const loggedUser = res?.data?.user ?? null;
       setUser(loggedUser);
+      setSelectedSite(loggedUser?.site); // default login site
       notify.success("Successfully Logged in");
       return loggedUser;
     } catch (err) {
@@ -31,6 +33,19 @@ export function AuthProvider({ children }) {
       notify.error(message);
     }
   }
+
+  useEffect(() => {
+    if (!user) return;
+
+    const saved = localStorage.getItem("selectedSite");
+
+    // Priority:
+    // 1. saved site
+    // 2. login site
+    const initialSite = saved || user.site;
+
+    setSelectedSite(initialSite);
+  }, [user]);
 
   // logout: call server to clear cookie and clear local state
   async function logout() {
@@ -42,6 +57,8 @@ export function AuthProvider({ children }) {
       notify.warn("Unable to contact server; local session cleared");
     } finally {
       setUser(null);
+      setSelectedSite(null);
+      localStorage.removeItem("selectedSite");
     }
   }
 
@@ -67,7 +84,21 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const value = { user, setUser, login, logout, loading };
+  useEffect(() => {
+    if (selectedSite) {
+      localStorage.setItem("selectedSite", selectedSite);
+    }
+  }, [selectedSite]);
+
+  const value = {
+    user,
+    setUser,
+    login,
+    logout,
+    selectedSite,
+    setSelectedSite,
+    loading,
+  };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

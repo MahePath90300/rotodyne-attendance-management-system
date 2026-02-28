@@ -8,6 +8,10 @@ import { buildMonthWindow } from "../utils/dates";
 import mockData from "../mock/attendance.mock";
 import Spinner from "../components/Spinner.jsx";
 import { resolveInitialAttendanceMonth } from "../utils/attendanceMonth.js";
+import { resolveAttendanceCycle } from "../config/attendanceCycle";
+import { Calculator } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Sites } from "../utils/sites.js";
 
 function normalizeHolidayISO(dateStr) {
   if (!dateStr) return null;
@@ -25,14 +29,25 @@ function normalizeHolidayISO(dateStr) {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, selectedSite, setSelectedSite } = useAuth();
   const { siteId: routeSiteId } = useParams();
+  const navigate = useNavigate();
 
-  const normalizedSiteId = routeSiteId === "ALL" ? "GARADWARA" : routeSiteId;
   const role = (user?.role || "VIEWER").toUpperCase();
   // Site engineer is locked to their assigned site from DB
-  const effectiveSiteId =
-    role === "SITE_ENGINEER" ? user.site : normalizedSiteId;
+  const effectiveSiteId = useMemo(() => {
+    if (role === "SITE_ENGINEER") return user.site;
+
+    if (routeSiteId) return routeSiteId;
+
+    return selectedSite;
+  }, [routeSiteId, selectedSite, role, user]);
+
+  useEffect(() => {
+    if (routeSiteId && routeSiteId !== selectedSite) {
+      setSelectedSite(routeSiteId);
+    }
+  }, [routeSiteId]);
 
   const { year: initialYear, month: initialMonth } =
     resolveInitialAttendanceMonth(effectiveSiteId);
@@ -45,6 +60,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const cycle = resolveAttendanceCycle(effectiveSiteId);
+  const { start, end } = cycle.buildRange(year, month);
+
+  if (!effectiveSiteId) return <Spinner />;
   // ---------- paste this inside Dashboard component (e.g. after normalizeHolidayISO) ----------
   async function fetchData(opts = { retries: 2, backoffMs: 500 }) {
     const { retries, backoffMs } = opts;
@@ -52,7 +71,7 @@ export default function Dashboard() {
     setError("");
 
     // cache-buster param to avoid 304 stale responses after a PUT
-    const url = `/api/v1/attendance/site/${encodeURIComponent(effectiveSiteId)}?year=${year}&month=${month}&_ts=${Date.now()}`;
+    const url = `/api/v1/attendance/site/${effectiveSiteId}?year=${year}&month=${month}&_ts=${Date.now()}`;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
@@ -60,9 +79,16 @@ export default function Dashboard() {
         const body = res.data || {};
         const days = body.days || buildMonthWindow(year, month);
 
-        const holidayIsoList = (body.holidays || [])
-          .map(normalizeHolidayISO)
-          .filter(Boolean);
+        const holidayMap = {};
+
+        if (body.holidays && typeof body.holidays === "object") {
+          Object.entries(body.holidays).forEach(([date, h]) => {
+            holidayMap[date] = {
+              type: h.type,
+              description: h.description,
+            };
+          });
+        }
 
         setSiteData({
           siteTitle: body.siteTitle || effectiveSiteId,
@@ -71,7 +97,8 @@ export default function Dashboard() {
           attendanceMap: body.attendanceMap || {},
           otMap: body.otMap || {},
           summaryMap: body.summaryMap || {},
-          holidays: new Set(holidayIsoList),
+          holidays: holidayMap,
+          group: body?.group,
           days,
         });
 
@@ -103,13 +130,23 @@ export default function Dashboard() {
             const holidayIsoList = (mock.holidays || [])
               .map(normalizeHolidayISO)
               .filter(Boolean);
+
+            const mockHolidayMap = {};
+            if (mock.holidays && typeof body.holidays === "object") {
+              Object.entries(body.holidays).forEach(([date, h]) => {
+                holidayMap[date] = {
+                  type: h.type,
+                  description: h.description,
+                };
+              });
+            }
             setSiteData({
               siteTitle: mock.siteTitle || effectiveSiteId,
               siteType: mock.siteType,
               employees: mock.employees || [],
               attendanceMap: mock.attendanceMap || {},
               otMap: mock.otMap || {},
-              holidays: new Set(holidayIsoList),
+              holidays: mockHolidayMap,
               days,
             });
             setLoading(false);
@@ -210,54 +247,71 @@ export default function Dashboard() {
     return <div className="p-6">No attendance data for this site.</div>;
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-6">
       {/* Site + period controls (hidden for site engineer) */}
       {role !== "SITE_ENGINEER" && (
-        <div className="flex items-center gap-3">
-          <div className="text-sm font-semibold">
-            Site:{" "}
-            <span className="font-normal">
-              {siteData.siteTitle || effectiveSiteId}
-            </span>
-          </div>
-          <label className="text-sm">Month</label>
-          <input
-            type="number"
-            min={1}
-            max={12}
-            value={month}
-            onChange={(e) => setMonth(Number(e.target.value))}
-            className="w-20 border rounded px-2 py-1 text-sm"
-          />
-          <input
-            type="number"
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="w-24 border rounded px-2 py-1 text-sm"
-          />
-          {role === "ADMIN" && (
-            <button
-              onClick={handleExport}
-              className="ml-auto px-3 py-1 bg-emerald-600 text-white rounded text-md"
-            >
-              Export wage sheet (Excel)
-            </button>
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* LEFT SIDE — Filters */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-semibold">Site:</label>
 
+              {role === "ADMIN" ? (
+                <select
+                  value={selectedSite || ""}
+                  onChange={(e) => {
+                    const newSite = e.target.value;
+                    setSelectedSite(newSite);
+                    navigate(`/attendance/${newSite}`);
+                  }}
+                  className="border rounded px-2 py-1 text-sm"
+                >
+                  {Sites.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-sm">{selectedSite}</span>
+              )}
+            </div>
+
+            <label className="text-sm">Month</label>
+
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              className="w-20 border rounded px-2 py-1 text-sm"
+            />
+
+            <input
+              type="number"
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="w-24 border rounded px-2 py-1 text-sm"
+            />
+          </div>
+
+          {/* RIGHT SIDE — Process Button */}
           {role === "ADMIN" && (
             <button
-              onClick={handleESIExport}
-              className="ml-2 px-3 py-1 bg-blue-600 text-white rounded text-md"
+              onClick={() =>
+                navigate("/payroll", {
+                  state: {
+                    siteId: effectiveSiteId,
+                    year,
+                    month,
+                  },
+                })
+              }
+              className="h-10 px-5 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm"
             >
-              Export ESI
-            </button>
-          )}
-          {role === "ADMIN" && (
-            <button
-              onClick={handlePFExport}
-              className="ml-2 px-3 py-1 bg-[#0A639D] text-white rounded text-md"
-            >
-              Export EPF ECR
+              <Calculator size={16} />
+              Process Wages
             </button>
           )}
         </div>
@@ -276,6 +330,8 @@ export default function Dashboard() {
         month={month}
         allowViewerEdit={role === "ADMIN"}
         onSaved={() => setReloadToken((t) => t + 1)}
+        movementMap={siteData.movementMap || {}}
+        group={siteData.group}
       />
     </div>
   );

@@ -21,12 +21,18 @@ export default function Legend() {
             <span className="inline-block w-3 h-3 rounded bg-rose-100 border border-rose-300" />
             <span>Public Holiday</span>
           </div>
+
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 rounded bg-red-200 border border-rose-400" />
+            <span>National Holiday</span>
+          </div>
+
           <div className="flex items-center gap-2">
             <span className="inline-block w-3 h-3 rounded bg-lime-200 border border-lime-400" />
             <span>Holiday work (HW on holiday)</span>
           </div>
 
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <span className="inline-block w-3 h-3 rounded bg-amber-400 border border-amber-600" />
             <span>OT cell greater than 0</span>
           </div>
@@ -62,9 +68,7 @@ export default function Legend() {
             <span> - Present – Half day</span>
           </div>
           <div className="flex items-center gap-2">
-            <Pill className="bg-rose-100 text-rose-800 border-rose-400">
-              A
-            </Pill>
+            <Pill className="bg-rose-100 text-rose-800 border-rose-400">A</Pill>
             <span> - Absent – Full day</span>
           </div>
           <div className="flex items-center gap-2">
@@ -97,6 +101,21 @@ export default function Legend() {
             </Pill>
             <span> - Holiday</span>
           </div>
+
+          <div className="flex items-center gap-2">
+            <Pill className="bg-indigo-100 text-red-800 border-indigo-300">
+              PH
+            </Pill>
+            <span> - National Holiday</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Pill className="bg-indigo-100 text-yellow-800 border-indigo-300">
+              FH
+            </Pill>
+            <span> - Festival Holiday</span>
+          </div>
+
           <div className="flex items-center gap-2">
             <Pill className="bg-indigo-100 text-indigo-800 border-indigo-300">
               C Off
